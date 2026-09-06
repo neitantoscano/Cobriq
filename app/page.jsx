@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   LayoutGrid, Users, Settings, Search, Plus, X, Check,
   MessageCircle, Mail, ArrowLeft, Clock, Wallet, Menu
@@ -9,8 +9,6 @@ import {
 /* ------------------------------------------------------------------
    COBRIQ · Frontend con datos de prueba
    Todo vive en useState. Nada toca Supabase todavía.
-   Para pasarlo a Next.js: agrega "use client" arriba y córtalo en
-   archivos por pantalla.
 ------------------------------------------------------------------- */
 
 const HOY = new Date("2026-09-04");
@@ -151,13 +149,44 @@ export default function Page() {
   const [pagos, setPagos]                 = useState(PAGOS_INICIALES);
   const [recordatorios, setRecordatorios] = useState(RECORDATORIOS_INICIALES);
 
-  const [modal, setModal] = useState(null); // 'deuda' | 'cliente' | 'pago'
+  const [modal, setModal] = useState(null);
   const [aviso, setAviso] = useState(null);
 
   const nombreDe = (id) => clientes.find((c) => c.id === id)?.nombre ?? "—";
   const clienteDe = (id) => clientes.find((c) => c.id === id);
 
   const notificar = (t) => { setAviso(t); setTimeout(() => setAviso(null), 2600); };
+
+  /* --- historial del navegador ---
+     Hace que el boton de regresar del celular vuelva a la pantalla
+     anterior en vez de sacar al usuario de la web. Cada pantalla,
+     modal y el menu lateral empujan una entrada al historial. */
+
+  const aplicarEstado = (s) => {
+    setVista(s.vista ?? "panel");
+    setAbierta(s.deuda ?? null);
+    setModal(s.modal ?? null);
+    setMenu(s.menu ?? false);
+  };
+
+  const navegar = (s) => {
+    if (typeof window !== "undefined") {
+      window.history.pushState({ cq: s }, "");
+    }
+    aplicarEstado(s);
+  };
+
+  useEffect(() => {
+    window.history.replaceState({ cq: { vista: "panel", deuda: null, modal: null, menu: false } }, "");
+
+    const alRegresar = (e) => {
+      const s = (e.state && e.state.cq) || { vista: "panel", deuda: null, modal: null, menu: false };
+      aplicarEstado(s);
+    };
+
+    window.addEventListener("popstate", alRegresar);
+    return () => window.removeEventListener("popstate", alRegresar);
+  }, []);
 
   /* --- totales --- */
   const totales = useMemo(() => {
@@ -237,8 +266,14 @@ export default function Page() {
     notificar(canal === "email" ? "Correo enviado" : "WhatsApp abierto");
   };
 
-  const abrirDeuda = (id) => { setAbierta(id); setVista("deuda"); setMenu(false); };
-  const irA = (v) => { setVista(v); setMenu(false); setAbierta(null); };
+  const abrirDeuda = (id) => navegar({ vista: "deuda", deuda: id });
+  const irA = (v)        => navegar({ vista: v, deuda: null });
+  const abrirModal = (m) => navegar({ vista, deuda: deudaAbierta, modal: m });
+  const abrirMenu = ()   => navegar({ vista, deuda: deudaAbierta, modal, menu: true });
+
+  const cerrarModal = () => { if (modal) window.history.back(); };
+  const cerrarMenu  = () => { if (menuAbierto) window.history.back(); };
+  const regresar    = () => window.history.back();
 
   const navegacion = [
     { id: "panel",    icono: LayoutGrid, texto: "Panel" },
@@ -290,7 +325,7 @@ export default function Page() {
           className="flex items-center gap-3 px-4 md:px-8 py-3 sticky top-0 z-20"
           style={{ borderBottom: "1px solid var(--linea)", background: "var(--papel)" }}
         >
-          <button className="btn-ico md:hidden" onClick={() => setMenu(true)} aria-label="Menú">
+          <button className="btn-ico md:hidden" onClick={abrirMenu} aria-label="Menú">
             <Menu size={17} />
           </button>
 
@@ -305,7 +340,7 @@ export default function Page() {
           </div>
 
           <button className="btn btn-solido flex items-center gap-1.5 shrink-0"
-            onClick={() => setModal("deuda")}>
+            onClick={() => abrirModal({ tipo: "deuda" })}>
             <Plus size={15} strokeWidth={2.5} />
             <span className="hidden sm:inline">Nueva deuda</span>
           </button>
@@ -342,12 +377,12 @@ export default function Page() {
       {/* menú lateral en celular */}
       {menuAbierto && (
         <div className="md:hidden fixed inset-0 z-40" style={{ background: "rgba(0,0,0,.45)" }}
-             onClick={() => setMenu(false)}>
+             onClick={cerrarMenu}>
           <div className="w-60 h-full p-4 surge" style={{ background: "var(--papel)" }}
                onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between pb-6">
               <span className="font-bold text-lg tracking-tight">Cobriq</span>
-              <button className="btn-ico" onClick={() => setMenu(false)}><X size={16} /></button>
+              <button className="btn-ico" onClick={cerrarMenu}><X size={16} /></button>
             </div>
             {navegacion.map((n) => (
               <button key={n.id} onClick={() => irA(n.id)}
@@ -368,9 +403,10 @@ export default function Page() {
         </div>
       )}
 
-      {modal === "deuda"   && <ModalDeuda />}
-      {modal === "cliente" && <ModalCliente />}
-      {modal?.tipo === "pago" && <ModalPago deuda={modal.deuda} />}
+      {modal?.tipo === "deuda"   && <ModalDeuda />}
+      {modal?.tipo === "cliente" && <ModalCliente />}
+      {modal?.tipo === "pago" && deudas.some((x) => x.id === modal.deudaId) &&
+        <ModalPago deuda={deudas.find((x) => x.id === modal.deudaId)} />}
     </div>
   );
 
@@ -467,7 +503,7 @@ export default function Page() {
             <p className="text-sm mt-1 mb-4" style={{ color: "var(--tenue)" }}>
               Registra tu primera deuda para empezar a llevar la cuenta.
             </p>
-            <button className="btn" onClick={() => setModal("deuda")}>Nueva deuda</button>
+            <button className="btn" onClick={() => abrirModal({ tipo: "deuda" })}>Nueva deuda</button>
           </div>
         ) : (
           <div style={{ borderTop: "1px solid var(--linea)" }}>
@@ -551,7 +587,7 @@ export default function Page() {
 
     return (
       <div className="surge">
-        <button onClick={() => irA("panel")}
+        <button onClick={regresar}
           className="flex items-center gap-1.5 text-sm font-medium mb-5"
           style={{ background: "none", border: 0, cursor: "pointer", color: "var(--tenue)" }}>
           <ArrowLeft size={15} /> Volver
@@ -584,7 +620,7 @@ export default function Page() {
           {d.estado !== "pagado" && (
             <div className="flex flex-wrap gap-2 mt-5">
               <button className="btn btn-solido flex items-center gap-1.5"
-                onClick={() => setModal({ tipo: "pago", deuda: d })}>
+                onClick={() => abrirModal({ tipo: "pago", deudaId: d.id })}>
                 <Wallet size={15} /> Registrar pago
               </button>
               <button className="btn flex items-center gap-1.5"
@@ -644,7 +680,7 @@ export default function Page() {
       <div className="surge">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold tracking-tight">Clientes</h1>
-          <button className="btn flex items-center gap-1.5" onClick={() => setModal("cliente")}>
+          <button className="btn flex items-center gap-1.5" onClick={() => abrirModal({ tipo: "cliente" })}>
             <Plus size={15} /> Agregar
           </button>
         </div>
@@ -744,13 +780,13 @@ export default function Page() {
   function Marco({ titulo, children }) {
     return (
       <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4"
-           style={{ background: "rgba(0,0,0,.45)" }} onClick={() => setModal(null)}>
+           style={{ background: "rgba(0,0,0,.45)" }} onClick={cerrarModal}>
         <div className="w-full md:max-w-md p-5 surge"
              style={{ background: "var(--papel)", borderRadius: "14px 14px 0 0" }}
              onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-5">
             <p className="font-bold text-lg tracking-tight">{titulo}</p>
-            <button className="btn-ico" onClick={() => setModal(null)} aria-label="Cerrar">
+            <button className="btn-ico" onClick={cerrarModal} aria-label="Cerrar">
               <X size={16} />
             </button>
           </div>
@@ -772,7 +808,7 @@ export default function Page() {
         id: crypto.randomUUID(), clienteId, concepto,
         monto: Number(monto), abonado: 0, vence, estado: "pendiente",
       }]);
-      setModal(null);
+      cerrarModal();
       notificar("Deuda registrada");
     };
 
@@ -812,7 +848,7 @@ export default function Page() {
     const guardar = () => {
       if (!nombre.trim()) return;
       setClientes((cs) => [...cs, { id: crypto.randomUUID(), nombre, tel, email }]);
-      setModal(null);
+      cerrarModal();
       notificar("Cliente agregado");
     };
 
@@ -861,7 +897,7 @@ export default function Page() {
         </select>
 
         <button className="btn btn-solido w-full"
-          onClick={() => { registrarPago(deuda.id, Math.min(n, saldo), metodo); setModal(null); }}>
+          onClick={() => { registrarPago(deuda.id, Math.min(n, saldo), metodo); cerrarModal(); }}>
           Registrar pago
         </button>
       </Marco>
