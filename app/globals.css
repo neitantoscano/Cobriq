@@ -12,3 +12,38 @@ body {
 * {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* ---- Ajustes de la barra superior ---- */
+
+/* La lupa necesita su espacio: el atajo padding de .campo
+   pisaba el pl-9 de Tailwind y el texto se encimaba. */
+.cq header .campo {
+  padding-left: 38px;
+  padding-right: 12px;
+}
+
+/* Todo a la misma altura para que quede parejo */
+.cq header .campo,
+.cq header .btn,
+.cq header .btn-ico {
+  height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.cq header .btn,
+.cq header .btn-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cq header .btn-ico {
+  width: 40px;
+  padding: 0;
+}
+
+/* Que el buscador no se estire de mas en pantalla grande */
+.cq header .campo {
+  min-width: 0;
+}
