@@ -1,10 +1,10 @@
 "use client";
 
-import { Check, Clock, Plus } from "lucide-react";
+import { Check, Clock, Plus, MessageCircle } from "lucide-react";
 import { pesos, diasDeAtraso, fechaCorta } from "../acciones";
 
-/* Pantalla principal: total por cobrar, contadores por estado,
-   pagos que reportaron los deudores y la lista de deudas. */
+/* Pantalla principal: aviso de cobro, total por cobrar, contadores
+   por estado, pagos reportados y la lista de deudas. */
 
 export default function Panel({
   deudas,
@@ -15,6 +15,7 @@ export default function Panel({
   busqueda,
   abrirDeuda,
   abrirModal,
+  irACobrar,
   onConfirmarPago,
   onRechazarPago,
   ocupado,
@@ -58,8 +59,31 @@ export default function Panel({
     (a, b) => diasDeAtraso(b.due_date) - diasDeAtraso(a.due_date)
   );
 
+  const n = vencidas.length;
+
   return (
     <div className="surge">
+      {/* aviso de cobro */}
+      {n > 0 && (
+        <section className="mb-7 rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap"
+                 style={{ border: `1.5px solid var(--rojo)`, background: "var(--rojo-suave)" }}>
+          <div className="min-w-0">
+            <p className="font-semibold text-sm">
+              {n === 1
+                ? "1 persona te debe y ya se paso de fecha"
+                : `${n} personas te deben y ya se pasaron de fecha`}
+            </p>
+            <p className="num text-xs mt-0.5" style={{ color: "var(--rojo)" }}>
+              {pesos(vencido)} sin cobrar
+            </p>
+          </div>
+          <button className="btn btn-solido flex items-center gap-1.5 shrink-0"
+                  onClick={irACobrar}>
+            <MessageCircle size={15} /> Cobrarles
+          </button>
+        </section>
+      )}
+
       {/* numero grande */}
       <section className="pb-8">
         <p className="text-sm mb-1" style={{ color: "var(--tenue)" }}>Por cobrar</p>
