@@ -11,6 +11,7 @@ import Panel from "./partes/Panel";
 import Deuda from "./partes/Deuda";
 import Clientes from "./partes/Clientes";
 import Ajustes from "./partes/Ajustes";
+import Cobrar from "./partes/Cobrar";
 import { ModalDeuda, ModalCliente, ModalPago } from "./partes/Modales";
 
 import {
@@ -20,7 +21,6 @@ import {
   registrarPagoNuevo, confirmarPagoReportado, rechazarPagoReportado,
   guardarAjustes, anotarRecordatorio, armarMensaje,
   traerDeudas, traerPagos, traerClientes, traerRecordatorios,
-  pesos,
 } from "./acciones";
 
 export default function Page() {
@@ -31,10 +31,10 @@ export default function Page() {
   const [cargando, setCargando] = useState(true);
   const [fallo, setFallo]       = useState("");
 
-  const [vista, setVista]        = useState("panel");
-  const [deudaId, setDeudaId]    = useState(null);
-  const [modal, setModal]        = useState(null);
-  const [menuAbierto, setMenu]   = useState(false);
+  const [vista, setVista]      = useState("panel");
+  const [deudaId, setDeudaId]  = useState(null);
+  const [modal, setModal]      = useState(null);
+  const [menuAbierto, setMenu] = useState(false);
 
   const [busqueda, setBusqueda] = useState("");
   const [filtro, setFiltro]     = useState("todos");
@@ -89,6 +89,7 @@ export default function Page() {
 
   const abrirDeuda  = (id) => navegar({ vista: "deuda", deuda: id });
   const irA         = (v)  => navegar({ vista: v, deuda: null });
+  const irACobrar   = ()   => navegar({ vista: "cobrar", deuda: null });
   const abrirModal  = (m)  => navegar({ vista, deuda: deudaId, modal: m });
   const abrirMenu   = ()   => navegar({ vista, deuda: deudaId, modal, menu: true });
   const cerrarModal = ()   => { if (modal) window.history.back(); };
@@ -102,7 +103,6 @@ export default function Page() {
   };
 
   /* ---------------------- acciones -------------------------- */
-
   const hacer = async (fn, exito) => {
     setOcupado(true);
     setErrorMod("");
@@ -123,7 +123,6 @@ export default function Page() {
   const guardarCliente = async (form) => {
     const ok = await hacer(async () => {
       await crearClienteNuevo(form);
-      setDatos((d) => ({ ...d, clientes: [] }));
       const clientes = await traerClientes();
       setDatos((d) => ({ ...d, clientes }));
     }, "Cliente agregado");
@@ -199,31 +198,30 @@ export default function Page() {
   };
 
   /* ------------------- recordatorios ------------------------ */
-
   const deudaActual = datos?.deudas.find((d) => d.id === deudaId) ?? null;
-  const clienteActual =
-    datos?.clientes.find((c) => c.id === deudaActual?.customer_id) ?? null;
+  const clienteDe   = (id) => datos?.clientes.find((c) => c.id === id) ?? null;
+  const clienteActual = clienteDe(deudaActual?.customer_id);
 
-  const textoRecordatorio = () =>
+  const armarTexto = (deuda, cliente) =>
     armarMensaje({
       plantilla: datos.ajustes.message_template,
-      cliente: clienteActual,
-      deuda: deudaActual,
-      saldoCentavos: deudaActual.balance_cents,
+      cliente,
+      deuda,
+      saldoCentavos: deuda.balance_cents,
       origen: window.location.origin,
     });
 
-  const mandarWhatsApp = async () => {
-    const texto = textoRecordatorio();
+  const escribirWhatsApp = async (deuda, cliente) => {
+    const texto = armarTexto(deuda, cliente);
     window.open(
-      `https://wa.me/52${clienteActual.phone}?text=${encodeURIComponent(texto)}`,
+      `https://wa.me/52${cliente.phone}?text=${encodeURIComponent(texto)}`,
       "_blank",
       "noopener,noreferrer"
     );
     await hacer(async () => {
       await anotarRecordatorio({
-        deudaId: deudaActual.id,
-        clienteId: clienteActual.id,
+        deudaId: deuda.id,
+        clienteId: cliente.id,
         canal: "whatsapp",
         texto,
       });
@@ -232,8 +230,13 @@ export default function Page() {
     });
   };
 
+  const mandarWhatsApp = () => escribirWhatsApp(deudaActual, clienteActual);
+
+  const mandarDesdeCobrar = (deuda) =>
+    escribirWhatsApp(deuda, clienteDe(deuda.customer_id));
+
   const mandarCorreo = async () => {
-    const texto = textoRecordatorio();
+    const texto  = armarTexto(deudaActual, clienteActual);
     const asunto = `Recordatorio de pago · ${datos.perfil.business_name}`;
     window.location.href = `mailto:${clienteActual.email}?subject=${encodeURIComponent(
       asunto
@@ -261,7 +264,6 @@ export default function Page() {
   };
 
   /* ------------------------ pantallas ----------------------- */
-
   if (cargando) return <Esqueleto />;
 
   if (fallo) {
@@ -286,7 +288,9 @@ export default function Page() {
     { id: "ajustes",  icono: Settings,   texto: "Ajustes" },
   ];
 
-  const activo = (id) => vista === id || (id === "panel" && vista === "deuda");
+  const activo = (id) =>
+    vista === id ||
+    (id === "panel" && (vista === "deuda" || vista === "cobrar"));
 
   return (
     <div className="cq flex min-h-screen">
@@ -350,8 +354,17 @@ export default function Page() {
               deudas={datos.deudas} pagos={datos.pagos} clientes={datos.clientes}
               filtro={filtro} setFiltro={setFiltro} busqueda={busqueda}
               abrirDeuda={abrirDeuda} abrirModal={abrirModal}
+              irACobrar={irACobrar}
               onConfirmarPago={confirmarPago} onRechazarPago={rechazarPago}
               ocupado={ocupado}
+            />
+          )}
+
+          {vista === "cobrar" && (
+            <Cobrar
+              deudas={datos.deudas} clientes={datos.clientes}
+              regresar={regresar} onMandar={mandarDesdeCobrar}
+              armarTexto={armarTexto} ocupado={ocupado}
             />
           )}
 
