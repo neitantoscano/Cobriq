@@ -94,10 +94,8 @@ export async function POST(request) {
     const importe    = (centavos / 100).toFixed(2);
     const referencia = `cobriq_${deuda.id}_${Date.now()}`;
 
-    /* Checkout Pro va en processing_mode "manual":
-       Mercado Pago se encarga de cobrar en su pagina.
-       Con "automatic" pedia el metodo de pago, que es para
-       Checkout API (formulario propio). */
+    /* notification_url no va aqui. El webhook se registra
+       en el panel de la aplicacion en Mercado Pago. */
     const peticion = {
       type: "online",
       processing_mode: "manual",
@@ -114,7 +112,6 @@ export async function POST(request) {
         },
       ],
       config: {
-        notification_url: `${origen}/api/mp/webhook`,
         online: {
           success_url: `${origen}/d/${token}?pago=listo`,
           failure_url: `${origen}/d/${token}?pago=fallo`,
