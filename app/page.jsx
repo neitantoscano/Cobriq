@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  LayoutGrid, Users, Settings, Search, Plus, X, Check, Menu, AlertCircle,
+  LayoutGrid, Users, Settings, Search, UserPlus, X, Check, Menu, AlertCircle,
 } from "lucide-react";
 
 import { CSS } from "./estilos";
@@ -12,7 +12,7 @@ import Deuda from "./partes/Deuda";
 import Clientes from "./partes/Clientes";
 import Ajustes from "./partes/Ajustes";
 import Cobrar from "./partes/Cobrar";
-import { ModalDeuda, ModalCliente, ModalPago } from "./partes/Modales";
+import { ModalDeuda, ModalDeudor, ModalCliente, ModalPago } from "./partes/Modales";
 
 import {
   cargarTodo, cerrarSesion,
@@ -45,7 +45,7 @@ export default function Page() {
 
   const notificar = (texto, malo = false) => {
     setAviso({ texto, malo });
-    setTimeout(() => setAviso(null), 3000);
+    setTimeout(() => setAviso(null), 3200);
   };
 
   /* ---------------------- carga inicial --------------------- */
@@ -63,6 +63,25 @@ export default function Page() {
 
   useEffect(() => { cargar(); }, [cargar]);
 
+  /* ------------- aviso al volver de Mercado Pago ------------ */
+  useEffect(() => {
+    const mp = new URLSearchParams(window.location.search).get("mp");
+    if (!mp) return;
+
+    window.history.replaceState({}, "", window.location.pathname);
+
+    const textos = {
+      listo:      ["Mercado Pago conectado", false],
+      cancelado:  ["No autorizaste la conexion", true],
+      invalido:   ["La conexion no se pudo verificar", true],
+      fallo:      ["No se pudo conectar Mercado Pago", true],
+      sin_config: ["Falta configurar Mercado Pago", true],
+    };
+
+    const [texto, malo] = textos[mp] || ["Algo paso con Mercado Pago", true];
+    setTimeout(() => notificar(texto, malo), 700);
+  }, []);
+
   /* ------------------ historial del navegador --------------- */
   const aplicar = (s) => {
     setVista(s.vista ?? "panel");
@@ -74,6 +93,11 @@ export default function Page() {
 
   const navegar = (s) => {
     window.history.pushState({ cq: s }, "");
+    aplicar(s);
+  };
+
+  const reemplazar = (s) => {
+    window.history.replaceState({ cq: s }, "");
     aplicar(s);
   };
 
@@ -96,7 +120,18 @@ export default function Page() {
   const cerrarMenu  = ()   => { if (menuAbierto) window.history.back(); };
   const regresar    = ()   => window.history.back();
 
+  /* Cambiar de modal sin apilar historial */
+  const cambiarModal = (m) =>
+    reemplazar({ vista, deuda: deudaId, modal: m });
+
   /* ---------------------- refrescos ------------------------- */
+  const refrescarTodo = async () => {
+    const [deudas, pagos, clientes] = await Promise.all([
+      traerDeudas(), traerPagos(), traerClientes(),
+    ]);
+    setDatos((d) => ({ ...d, deudas, pagos, clientes }));
+  };
+
   const refrescarDeudasYPagos = async () => {
     const [deudas, pagos] = await Promise.all([traerDeudas(), traerPagos()]);
     setDatos((d) => ({ ...d, deudas, pagos }));
@@ -120,12 +155,44 @@ export default function Page() {
     }
   };
 
+  /* Cliente solo */
   const guardarCliente = async (form) => {
     const ok = await hacer(async () => {
       await crearClienteNuevo(form);
       const clientes = await traerClientes();
       setDatos((d) => ({ ...d, clientes }));
     }, "Cliente agregado");
+    if (ok) cerrarModal();
+  };
+
+  /* Deudor nuevo: cliente + deuda de un jalon */
+  const guardarDeudor = async (form) => {
+    const ok = await hacer(async () => {
+      const cliente = await crearClienteNuevo({
+        nombre: form.nombre,
+        telefono: form.telefono,
+        correo: form.correo,
+      });
+
+      try {
+        await crearDeudaNueva({
+          clienteId: cliente.id,
+          concepto: form.concepto,
+          montoPesos: form.montoPesos,
+          vence: form.vence,
+        });
+      } catch (e) {
+        /* El cliente si se creo, la deuda no. Lo decimos claro
+           para que no vuelva a capturar a la persona. */
+        await refrescarTodo();
+        throw new Error(
+          `${form.nombre} ya quedo guardado, pero la deuda no: ${e.message}`
+        );
+      }
+
+      await refrescarTodo();
+    }, "Deudor y deuda registrados");
+
     if (ok) cerrarModal();
   };
 
@@ -198,8 +265,8 @@ export default function Page() {
   };
 
   /* ------------------- recordatorios ------------------------ */
-  const deudaActual = datos?.deudas.find((d) => d.id === deudaId) ?? null;
-  const clienteDe   = (id) => datos?.clientes.find((c) => c.id === id) ?? null;
+  const deudaActual   = datos?.deudas.find((d) => d.id === deudaId) ?? null;
+  const clienteDe     = (id) => datos?.clientes.find((c) => c.id === id) ?? null;
   const clienteActual = clienteDe(deudaActual?.customer_id);
 
   const armarTexto = (deuda, cliente) =>
@@ -230,8 +297,7 @@ export default function Page() {
     });
   };
 
-  const mandarWhatsApp = () => escribirWhatsApp(deudaActual, clienteActual);
-
+  const mandarWhatsApp    = () => escribirWhatsApp(deudaActual, clienteActual);
   const mandarDesdeCobrar = (deuda) =>
     escribirWhatsApp(deuda, clienteDe(deuda.customer_id));
 
@@ -342,9 +408,9 @@ export default function Page() {
           </div>
 
           <button className="btn btn-solido flex items-center gap-1.5 shrink-0"
-                  onClick={() => abrirModal({ tipo: "deuda" })}>
-            <Plus size={15} strokeWidth={2.5} />
-            <span className="hidden sm:inline">Nueva deuda</span>
+                  onClick={() => abrirModal({ tipo: "deudor" })}>
+            <UserPlus size={15} strokeWidth={2.5} />
+            <span className="hidden sm:inline">Nuevo deudor</span>
           </button>
         </header>
 
@@ -450,9 +516,15 @@ export default function Page() {
       )}
 
       {/* modales */}
+      {modal?.tipo === "deudor" && (
+        <ModalDeudor cerrar={cerrarModal} onGuardar={guardarDeudor}
+                     ocupado={ocupado} error={errorModal} />
+      )}
       {modal?.tipo === "deuda" && (
-        <ModalDeuda clientes={datos.clientes} cerrar={cerrarModal}
-                    onGuardar={guardarDeuda} ocupado={ocupado} error={errorModal} />
+        <ModalDeuda clientes={datos.clientes} clienteFijo={modal.clienteId}
+                    cerrar={cerrarModal} onGuardar={guardarDeuda}
+                    irANuevoDeudor={() => cambiarModal({ tipo: "deudor" })}
+                    ocupado={ocupado} error={errorModal} />
       )}
       {modal?.tipo === "cliente" && (
         <ModalCliente cerrar={cerrarModal} onGuardar={guardarCliente}
