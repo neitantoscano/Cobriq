@@ -70,7 +70,7 @@ export async function POST(request) {
 
     if (!deuda) return malo("Este link ya no esta activo.");
 
-    const saldo = deuda.amount_cents - deuda.paid_cents;
+    const saldo    = deuda.amount_cents - deuda.paid_cents;
     const centavos = Math.round(monto * 100);
 
     if (centavos > saldo) return malo("El monto es mayor a lo que debes.");
@@ -94,21 +94,17 @@ export async function POST(request) {
     const importe    = (centavos / 100).toFixed(2);
     const referencia = `cobriq_${deuda.id}_${Date.now()}`;
 
-    /* Estructura corregida segun el error que devolvio MP:
-       - items NO acepta unit_measure ni total_amount
-       - el monto va dentro de transactions.payments */
+    /* Checkout Pro va en processing_mode "manual":
+       Mercado Pago se encarga de cobrar en su pagina.
+       Con "automatic" pedia el metodo de pago, que es para
+       Checkout API (formulario propio). */
     const peticion = {
       type: "online",
-      processing_mode: "automatic",
+      processing_mode: "manual",
       total_amount: importe,
       external_reference: referencia,
       payer: {
         email: cliente?.email || "comprador@cobriq.mx",
-      },
-      transactions: {
-        payments: [
-          { amount: importe },
-        ],
       },
       items: [
         {
