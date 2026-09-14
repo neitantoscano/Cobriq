@@ -42,7 +42,6 @@ export default function PaginaDeudor({ params }) {
   const [metodo, setMetodo]   = useState("transferencia");
   const [enviando, setEnviar] = useState(false);
   const [error, setError]     = useState("");
-  const [detalle, setDetalle] = useState("");
   const [listo, setListo]     = useState(false);
   const [regreso, setRegreso] = useState(null);
 
@@ -88,7 +87,6 @@ export default function PaginaDeudor({ params }) {
   /* --------------------- pagar en linea --------------------- */
   const pagarEnLinea = async () => {
     setError("");
-    setDetalle("");
     const n = Number(monto);
 
     if (!n || n <= 0) { setError("Escribe cuanto vas a pagar."); return; }
@@ -109,21 +107,18 @@ export default function PaginaDeudor({ params }) {
       if (!d?.ok || !d?.url) {
         setEnviar(false);
         setError(d?.error || "No se pudo generar el cobro.");
-        setDetalle(d?.detalle || "");
         return;
       }
       window.location.href = d.url;
-    } catch (e) {
+    } catch {
       setEnviar(false);
       setError("No se pudo conectar. Intenta de nuevo.");
-      setDetalle(e?.message || "");
     }
   };
 
   /* --------------------- reportar pago ---------------------- */
   const reportar = async () => {
     setError("");
-    setDetalle("");
     const n = Number(monto);
 
     if (!n || n <= 0) { setError("Escribe cuanto pagaste."); return; }
@@ -199,23 +194,13 @@ export default function PaginaDeudor({ params }) {
     </div>
   );
 
-  /* Bloque de error, con detalle tecnico si lo hay */
-  const BloqueError = () =>
+  const Error = () =>
     !error ? null : (
-      <div style={{ marginBottom: 16 }}>
-        <p style={{ fontSize: 14, color: "#C0392B", fontWeight: 500, margin: 0 }}>
-          {error}
-        </p>
-        {detalle && (
-          <p style={{
-            fontSize: 11, color: "#8a8a8a", marginTop: 6, marginBottom: 0,
-            wordBreak: "break-all", fontFamily: "ui-monospace, monospace",
-            background: "#f4f4f4", padding: "8px 10px", borderRadius: 6,
-          }}>
-            {detalle}
-          </p>
-        )}
-      </div>
+      <p style={{
+        fontSize: 14, color: "#C0392B", fontWeight: 500, marginBottom: 16,
+      }}>
+        {error}
+      </p>
     );
 
   /* ------------------------ cargando ------------------------ */
@@ -419,14 +404,14 @@ export default function PaginaDeudor({ params }) {
               </button>
             </div>
 
-            <BloqueError />
+            <Error />
 
             <button className="btn" onClick={pagarEnLinea} disabled={enviando}>
               {enviando ? "Un momento..." : "Continuar a Mercado Pago"}
             </button>
 
             <button className="btn-2"
-                    onClick={() => { setModo(null); setError(""); setDetalle(""); }}
+                    onClick={() => { setModo(null); setError(""); }}
                     disabled={enviando} style={{ marginTop: 10 }}>
               Cancelar
             </button>
@@ -465,14 +450,14 @@ export default function PaginaDeudor({ params }) {
               <option value="otro">Otro</option>
             </select>
 
-            <BloqueError />
+            <Error />
 
             <button className="btn" onClick={reportar} disabled={enviando}>
               {enviando ? "Enviando..." : "Enviar aviso"}
             </button>
 
             <button className="btn-2"
-                    onClick={() => { setModo(null); setError(""); setDetalle(""); }}
+                    onClick={() => { setModo(null); setError(""); }}
                     disabled={enviando} style={{ marginTop: 10 }}>
               Cancelar
             </button>
