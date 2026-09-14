@@ -3,9 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 /* El deudor pica "Pagar ahora" y esto genera la orden en
    Mercado Pago usando el token del dueno.
-
-   MODO DIAGNOSTICO: si algo falla, devuelve el detalle a la
-   pantalla. Lo quitamos cuando ya jale. */
+   Sigue en modo diagnostico: devuelve el detalle a la pantalla. */
 
 const admin = () =>
   createClient(
@@ -93,24 +91,30 @@ export async function POST(request) {
       .eq("id", deuda.customer_id)
       .maybeSingle();
 
-    const importe = (centavos / 100).toFixed(2);
+    const importe    = (centavos / 100).toFixed(2);
     const referencia = `cobriq_${deuda.id}_${Date.now()}`;
 
+    /* Estructura corregida segun el error que devolvio MP:
+       - items NO acepta unit_measure ni total_amount
+       - el monto va dentro de transactions.payments */
     const peticion = {
       type: "online",
       processing_mode: "automatic",
       total_amount: importe,
       external_reference: referencia,
       payer: {
-        email: cliente?.email || "test_user_123@testuser.com",
+        email: cliente?.email || "comprador@cobriq.mx",
+      },
+      transactions: {
+        payments: [
+          { amount: importe },
+        ],
       },
       items: [
         {
-          title: deuda.concept?.slice(0, 60) || "Pago de adeudo",
+          title: (deuda.concept || "Pago de adeudo").slice(0, 60),
           unit_price: importe,
           quantity: 1,
-          unit_measure: "unit",
-          total_amount: importe,
         },
       ],
       config: {
