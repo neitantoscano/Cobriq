@@ -1,21 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { Check, LogOut } from "lucide-react";
+import { Check, LogOut, CreditCard, ExternalLink } from "lucide-react";
 
-/* Ajustes: cuando mandar recordatorios, plantilla del mensaje
-   y cerrar sesion. */
+/* Ajustes: Mercado Pago, cuando mandar recordatorios,
+   plantilla del mensaje y cerrar sesion. */
 
 export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }) {
   const aTexto = (arr) => (arr ?? []).join(", ");
 
-  const [antes, setAntes]       = useState(aTexto(ajustes?.days_before));
-  const [despues, setDespues]   = useState(aTexto(ajustes?.days_after));
-  const [correo, setCorreo]     = useState(ajustes?.email_enabled ?? true);
-  const [plantilla, setPlant]   = useState(ajustes?.message_template ?? "");
-  const [error, setError]       = useState("");
+  const [antes, setAntes]     = useState(aTexto(ajustes?.days_before));
+  const [despues, setDespues] = useState(aTexto(ajustes?.days_after));
+  const [correo, setCorreo]   = useState(ajustes?.email_enabled ?? true);
+  const [plantilla, setPlant] = useState(ajustes?.message_template ?? "");
+  const [error, setError]     = useState("");
 
-  /* Convierte "1, 7, 15" en [1,7,15]. Ignora basura. */
+  const conectado = perfil?.mp_connected === true;
+
   const aNumeros = (txt) =>
     txt
       .split(",")
@@ -52,6 +53,61 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
         {perfil?.business_name} · {perfil?.email}
       </p>
 
+      {/* ---------------- Mercado Pago ---------------- */}
+      <section className="mb-8 rounded-lg p-4"
+               style={{
+                 border: `1.5px solid ${conectado ? "var(--verde)" : "var(--linea)"}`,
+                 background: conectado ? "var(--verde-suave)" : "transparent",
+               }}>
+        <div className="flex items-start gap-3">
+          <CreditCard size={19} className="shrink-0 mt-0.5"
+                      style={{ color: conectado ? "var(--verde)" : "var(--tinta)" }} />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-sm">
+              {conectado ? "Cobras con Mercado Pago" : "Cobra con Mercado Pago"}
+            </p>
+
+            {conectado ? (
+              <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
+                Tus deudores ya pueden pagarte con tarjeta o en efectivo desde
+                el link. El dinero cae directo en tu cuenta y el saldo se
+                actualiza solo.
+              </p>
+            ) : (
+              <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
+                Conecta tu cuenta y tus deudores van a poder pagarte desde el
+                link, sin que tengas que confirmar nada. El dinero llega a tu
+                cuenta de Mercado Pago, Cobriq nunca lo toca.
+              </p>
+            )}
+
+            <div className="mt-3">
+              {conectado ? (
+                <a href="/api/mp/conectar"
+                   className="text-xs font-semibold"
+                   style={{ color: "var(--tenue)", textDecoration: "underline" }}>
+                  Volver a conectar
+                </a>
+              ) : (
+                <a href="/api/mp/conectar"
+                   className="btn btn-solido inline-flex items-center gap-1.5"
+                   style={{ textDecoration: "none" }}>
+                  Conectar Mercado Pago
+                  <ExternalLink size={14} />
+                </a>
+              )}
+            </div>
+          </div>
+
+          {conectado && (
+            <span className="chip chip-verde shrink-0">
+              <Check size={11} strokeWidth={3} />Listo
+            </span>
+          )}
+        </div>
+      </section>
+
+      {/* ---------------- recordatorios ---------------- */}
       <section className="mb-8">
         <p className="font-semibold text-sm mb-1">Cuando mandar recordatorios</p>
         <p className="text-xs mb-4" style={{ color: "var(--tenue)" }}>
@@ -77,6 +133,7 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
         </p>
       </section>
 
+      {/* ---------------- correo ---------------- */}
       <section className="mb-8">
         <p className="font-semibold text-sm mb-3">Correo automatico</p>
         <button onClick={() => setCorreo(!correo)} disabled={ocupado}
@@ -102,6 +159,7 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
         </p>
       </section>
 
+      {/* ---------------- plantilla ---------------- */}
       <section className="mb-8">
         <p className="font-semibold text-sm mb-3">Mensaje que reciben</p>
         <textarea className="campo" rows={4} value={plantilla} disabled={ocupado}
