@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 /* El deudor pica "Pagar ahora" y esto genera la orden en
-   Mercado Pago usando el token del dueno. El dinero cae
-   directo en la cuenta del dueno, Cobriq nunca lo toca. */
+   Mercado Pago usando el token del dueno.
+
+   MODO DIAGNOSTICO: si algo falla, devuelve el detalle a la
+   pantalla. Lo quitamos cuando ya jale. */
 
 const admin = () =>
   createClient(
@@ -12,9 +14,8 @@ const admin = () =>
     { auth: { persistSession: false } }
   );
 
-/* Renueva el token del dueno si ya vencio o esta por vencer */
 async function tokenVigente(sb, cuenta) {
-  const margen = 5 * 60 * 1000; // 5 minutos
+  const margen = 5 * 60 * 1000;
   const vence  = cuenta.expires_at ? new Date(cuenta.expires_at).getTime() : 0;
 
   if (vence && vence - margen > Date.now()) return cuenta.access_token;
@@ -49,8 +50,8 @@ async function tokenVigente(sb, cuenta) {
 export async function POST(request) {
   const origen = new URL(request.url).origin;
 
-  const malo = (mensaje) =>
-    NextResponse.json({ ok: false, error: mensaje }, { status: 200 });
+  const malo = (mensaje, detalle) =>
+    NextResponse.json({ ok: false, error: mensaje, detalle }, { status: 200 });
 
   try {
     const cuerpo = await request.json();
@@ -62,7 +63,6 @@ export async function POST(request) {
 
     const sb = admin();
 
-    /* 1. Buscar la deuda por su token publico */
     const { data: deuda } = await sb
       .from("debts")
       .select("id, owner_id, concept, amount_cents, paid_cents, status, customer_id")
@@ -77,7 +77,6 @@ export async function POST(request) {
 
     if (centavos > saldo) return malo("El monto es mayor a lo que debes.");
 
-    /* 2. Traer la conexion de Mercado Pago del dueno */
     const { data: cuenta } = await sb
       .from("mp_accounts")
       .select("*")
@@ -88,16 +87,42 @@ export async function POST(request) {
 
     const accessToken = await tokenVigente(sb, cuenta);
 
-    /* 3. Datos del cliente y del negocio */
     const { data: cliente } = await sb
       .from("customers")
       .select("name, email")
       .eq("id", deuda.customer_id)
       .maybeSingle();
 
-    /* 4. Crear la orden en Mercado Pago */
     const importe = (centavos / 100).toFixed(2);
     const referencia = `cobriq_${deuda.id}_${Date.now()}`;
+
+    const peticion = {
+      type: "online",
+      processing_mode: "automatic",
+      total_amount: importe,
+      external_reference: referencia,
+      payer: {
+        email: cliente?.email || "test_user_123@testuser.com",
+      },
+      items: [
+        {
+          title: deuda.concept?.slice(0, 60) || "Pago de adeudo",
+          unit_price: importe,
+          quantity: 1,
+          unit_measure: "unit",
+          total_amount: importe,
+        },
+      ],
+      config: {
+        notification_url: `${origen}/api/mp/webhook`,
+        online: {
+          success_url: `${origen}/d/${token}?pago=listo`,
+          failure_url: `${origen}/d/${token}?pago=fallo`,
+          pending_url: `${origen}/d/${token}?pago=pendiente`,
+          auto_return: "approved",
+        },
+      },
+    };
 
     const r = await fetch("https://api.mercadopago.com/v1/orders", {
       method: "POST",
@@ -107,44 +132,20 @@ export async function POST(request) {
         Authorization: `Bearer ${accessToken}`,
         "X-Idempotency-Key": crypto.randomUUID(),
       },
-      body: JSON.stringify({
-        type: "online",
-        processing_mode: "automatic",
-        total_amount: importe,
-        external_reference: referencia,
-        payer: {
-          email: cliente?.email || "sin-correo@cobriq.mx",
-        },
-        items: [
-          {
-            title: deuda.concept?.slice(0, 60) || "Pago de adeudo",
-            unit_price: importe,
-            quantity: 1,
-            unit_measure: "unit",
-            total_amount: importe,
-          },
-        ],
-        config: {
-          notification_url: `${origen}/api/mp/webhook`,
-          online: {
-            success_url: `${origen}/d/${token}?pago=listo`,
-            failure_url: `${origen}/d/${token}?pago=fallo`,
-            pending_url: `${origen}/d/${token}?pago=pendiente`,
-            auto_return: "approved",
-          },
-        },
-      }),
+      body: JSON.stringify(peticion),
     });
 
-    const orden = await r.json();
+    const crudo = await r.text();
+    let orden = null;
+    try { orden = JSON.parse(crudo); } catch { /* no era JSON */ }
 
     if (!r.ok) {
-      console.error("MP orders error:", r.status, orden?.message);
-      return malo("No se pudo generar el cobro. Intenta mas tarde.");
+      return malo(
+        "No se pudo generar el cobro.",
+        `HTTP ${r.status} · ${crudo.slice(0, 500)}`
+      );
     }
 
-    /* La liga para pagar puede venir en distintos campos
-       segun la version de la API. Buscamos en todos. */
     const liga =
       orden?.checkout_url ||
       orden?.init_point ||
@@ -154,14 +155,15 @@ export async function POST(request) {
       null;
 
     if (!liga) {
-      console.error("MP orders sin liga:", JSON.stringify(orden).slice(0, 400));
-      return malo("No se pudo generar el cobro. Intenta mas tarde.");
+      return malo(
+        "No se pudo generar el cobro.",
+        `Sin liga · campos: ${Object.keys(orden || {}).join(", ")} · ${crudo.slice(0, 400)}`
+      );
     }
 
     return NextResponse.json({ ok: true, url: liga });
 
   } catch (e) {
-    console.error("cobrar excepcion");
-    return malo("No se pudo generar el cobro.");
+    return malo("No se pudo generar el cobro.", `Excepcion: ${e.message}`);
   }
 }
