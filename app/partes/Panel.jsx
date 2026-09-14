@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clock, Plus, MessageCircle } from "lucide-react";
+import { Check, Clock, Plus, UserPlus, MessageCircle } from "lucide-react";
 import { pesos, diasDeAtraso, fechaCorta } from "../acciones";
 
 /* Pantalla principal: aviso de cobro, total por cobrar, contadores
@@ -60,13 +60,14 @@ export default function Panel({
   );
 
   const n = vencidas.length;
+  const vacio = deudas.length === 0;
 
   return (
     <div className="surge">
       {/* aviso de cobro */}
       {n > 0 && (
         <section className="mb-7 rounded-lg p-4 flex items-center justify-between gap-4 flex-wrap"
-                 style={{ border: `1.5px solid var(--rojo)`, background: "var(--rojo-suave)" }}>
+                 style={{ border: "1.5px solid var(--rojo)", background: "var(--rojo-suave)" }}>
           <div className="min-w-0">
             <p className="font-semibold text-sm">
               {n === 1
@@ -85,7 +86,7 @@ export default function Panel({
       )}
 
       {/* numero grande */}
-      <section className="pb-8">
+      <section className="pb-6">
         <p className="text-sm mb-1" style={{ color: "var(--tenue)" }}>Por cobrar</p>
         <p className="num font-bold leading-none text-5xl md:text-6xl">
           {pesos(porCobrar)}
@@ -103,6 +104,20 @@ export default function Panel({
             de {pesos(meta)}
           </p>
         </div>
+      </section>
+
+      {/* los dos botones de alta */}
+      <section className="flex gap-2 pb-8 flex-wrap">
+        <button className="btn btn-solido flex items-center gap-1.5"
+                onClick={() => abrirModal({ tipo: "deudor" })}>
+          <UserPlus size={16} /> Nuevo deudor
+        </button>
+        <button className="btn flex items-center gap-1.5"
+                onClick={() => abrirModal({ tipo: "deuda" })}
+                disabled={clientes.length === 0}
+                title={clientes.length === 0 ? "Primero registra un deudor" : ""}>
+          <Plus size={16} /> Otra deuda a alguien que ya tengo
+        </button>
       </section>
 
       {/* tres estados */}
@@ -163,45 +178,47 @@ export default function Panel({
       )}
 
       {/* filtros */}
-      <div className="flex gap-2 overflow-x-auto pb-4">
-        {[
-          ["todos", "Todos", null],
-          ["vencidas", "Vencidas", "var(--rojo)"],
-          ["porvencer", "Por vencer", "var(--gris)"],
-          ["pagadas", "Pagadas", "var(--verde)"],
-        ].map(([id, txt, color]) => (
-          <button key={id} onClick={() => setFiltro(id)}
-            className="text-xs font-semibold px-3 py-1.5 rounded-full shrink-0 flex items-center gap-1.5"
-            style={{
-              cursor: "pointer",
-              border: `1.5px solid ${filtro === id ? "#000" : "var(--linea)"}`,
-              background: filtro === id ? "#000" : "transparent",
-              color: filtro === id ? "#fff" : "var(--tenue)",
-            }}>
-            {color && <span className="punto" style={{ background: color, width: 6, height: 6 }} />}
-            {txt}
-          </button>
-        ))}
-      </div>
+      {!vacio && (
+        <div className="flex gap-2 overflow-x-auto pb-4">
+          {[
+            ["todos", "Todos", null],
+            ["vencidas", "Vencidas", "var(--rojo)"],
+            ["porvencer", "Por vencer", "var(--gris)"],
+            ["pagadas", "Pagadas", "var(--verde)"],
+          ].map(([id, txt, color]) => (
+            <button key={id} onClick={() => setFiltro(id)}
+              className="text-xs font-semibold px-3 py-1.5 rounded-full shrink-0 flex items-center gap-1.5"
+              style={{
+                cursor: "pointer",
+                border: `1.5px solid ${filtro === id ? "#000" : "var(--linea)"}`,
+                background: filtro === id ? "#000" : "transparent",
+                color: filtro === id ? "#fff" : "var(--tenue)",
+              }}>
+              {color && <span className="punto" style={{ background: color, width: 6, height: 6 }} />}
+              {txt}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* lista */}
       {lista.length === 0 ? (
-        <div className="py-14 text-center">
+        <div className="py-12 text-center">
           <p className="font-semibold">
             {busqueda.trim()
               ? "Nada coincide con tu busqueda"
-              : deudas.length === 0
+              : vacio
               ? "Aqui no hay nada todavia"
               : "Sin deudas en este filtro"}
           </p>
-          {deudas.length === 0 && !busqueda.trim() && (
+          {vacio && !busqueda.trim() && (
             <>
               <p className="text-sm mt-1 mb-4" style={{ color: "var(--tenue)" }}>
-                Registra tu primera deuda para empezar a llevar la cuenta.
+                Registra a tu primer deudor para empezar a llevar la cuenta.
               </p>
-              <button className="btn inline-flex items-center gap-1.5"
-                onClick={() => abrirModal({ tipo: "deuda" })}>
-                <Plus size={15} /> Nueva deuda
+              <button className="btn btn-solido inline-flex items-center gap-1.5"
+                onClick={() => abrirModal({ tipo: "deudor" })}>
+                <UserPlus size={16} /> Nuevo deudor
               </button>
             </>
           )}
