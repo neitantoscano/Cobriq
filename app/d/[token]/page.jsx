@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { createBrowserClient } from "@supabase/ssr";
-import { Check, AlertCircle } from "lucide-react";
+import { Check, AlertCircle, Clock } from "lucide-react";
 
 /* Pantalla que ve el deudor al abrir su link.
-   No necesita cuenta. Solo ve su deuda y puede avisar que ya pago. */
+   No necesita cuenta. Puede pagar en linea o avisar que ya pago. */
 
 const pesos = (c) =>
   (Number(c || 0) / 100).toLocaleString("es-MX", {
@@ -24,6 +24,12 @@ const fechaLarga = (s) => {
   });
 };
 
+const nuevoCliente = () =>
+  createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+
 export default function PaginaDeudor({ params }) {
   const token = params?.token;
 
@@ -31,90 +37,113 @@ export default function PaginaDeudor({ params }) {
   const [cargando, setCargando] = useState(true);
   const [noExiste, setNoExiste] = useState(false);
 
-  const [abriendo, setAbrir]  = useState(false);
+  const [modo, setModo]       = useState(null); // null | 'linea' | 'aviso'
   const [monto, setMonto]     = useState("");
   const [metodo, setMetodo]   = useState("transferencia");
   const [enviando, setEnviar] = useState(false);
   const [error, setError]     = useState("");
   const [listo, setListo]     = useState(false);
+  const [regreso, setRegreso] = useState(null);
 
   /* --------------------- traer la deuda --------------------- */
+  const traer = async () => {
+    if (!token) { setNoExiste(true); setCargando(false); return; }
+
+    try {
+      const sb = nuevoCliente();
+      const { data, error: err } = await sb.rpc("deuda_publica", { token });
+
+      if (err || !data || data.length === 0) {
+        setNoExiste(true);
+      } else {
+        const d = data[0];
+        setDeuda(d);
+        setMonto(String(Number(d.saldo_cents) / 100));
+      }
+    } catch {
+      setNoExiste(true);
+    } finally {
+      setCargando(false);
+    }
+  };
+
   useEffect(() => {
-    let vivo = true;
-
-    const traer = async () => {
-      if (!token) {
-        if (vivo) { setNoExiste(true); setCargando(false); }
-        return;
-      }
-
-      try {
-        const sb = createBrowserClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-        );
-
-        const { data, error: err } = await sb.rpc("deuda_publica", { token });
-
-        if (!vivo) return;
-
-        if (err || !data || data.length === 0) {
-          setNoExiste(true);
-        } else {
-          const d = data[0];
-          setDeuda(d);
-          setMonto(String(Number(d.saldo_cents) / 100));
-        }
-      } catch {
-        if (vivo) setNoExiste(true);
-      } finally {
-        if (vivo) setCargando(false);
-      }
-    };
-
+    /* Si viene de regreso de Mercado Pago, avisamos */
+    const p = new URLSearchParams(window.location.search).get("pago");
+    if (p) {
+      setRegreso(p);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
     traer();
-    return () => { vivo = false; };
   }, [token]);
 
-  /* --------------------- reportar pago ---------------------- */
-  const reportar = async () => {
-    setError("");
+  /* Tras pagar, el webhook tarda unos segundos.
+     Recargamos el saldo un par de veces. */
+  useEffect(() => {
+    if (regreso !== "listo") return;
+    const t1 = setTimeout(traer, 3000);
+    const t2 = setTimeout(traer, 8000);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [regreso]);
 
+  /* --------------------- pagar en linea --------------------- */
+  const pagarEnLinea = async () => {
+    setError("");
     const n = Number(monto);
-    if (!n || n <= 0) {
-      setError("Escribe cuanto pagaste.");
-      return;
-    }
+
+    if (!n || n <= 0) { setError("Escribe cuanto vas a pagar."); return; }
     if (Math.round(n * 100) > Number(deuda.saldo_cents)) {
       setError("Ese monto es mayor a lo que debes.");
       return;
     }
 
     setEnviar(true);
-
     try {
-      const sb = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      );
+      const r = await fetch("/api/mp/cobrar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, montoPesos: n }),
+      });
+      const d = await r.json();
 
+      if (!d?.ok || !d?.url) {
+        setEnviar(false);
+        setError(d?.error || "No se pudo generar el cobro.");
+        return;
+      }
+      window.location.href = d.url;
+    } catch {
+      setEnviar(false);
+      setError("No se pudo conectar. Intenta de nuevo.");
+    }
+  };
+
+  /* --------------------- reportar pago ---------------------- */
+  const reportar = async () => {
+    setError("");
+    const n = Number(monto);
+
+    if (!n || n <= 0) { setError("Escribe cuanto pagaste."); return; }
+    if (Math.round(n * 100) > Number(deuda.saldo_cents)) {
+      setError("Ese monto es mayor a lo que debes.");
+      return;
+    }
+
+    setEnviar(true);
+    try {
+      const sb = nuevoCliente();
       const { data, error: err } = await sb.rpc("reportar_pago", {
         token,
         centavos: Math.round(n * 100),
         metodo,
       });
-
       setEnviar(false);
 
-      if (err) {
-        setError("No se pudo enviar. Revisa tu internet e intenta de nuevo.");
-        return;
-      }
+      if (err) { setError("No se pudo enviar. Revisa tu internet."); return; }
       if (!data || data.ok !== true) {
         setError((data && data.error) || "No se pudo enviar.");
         return;
       }
-
       setListo(true);
     } catch {
       setEnviar(false);
@@ -124,16 +153,14 @@ export default function PaginaDeudor({ params }) {
 
   /* ------------------------ estilos ------------------------- */
   const CSS = `
-    .dd { --tinta:#000; --papel:#fff; --humo:#f4f4f4; --linea:#e4e4e4; --tenue:#8a8a8a;
-          --verde:#0F7B3D; --verde-suave:#E8F5EC; --rojo:#C0392B; --rojo-suave:#FCEBE9;
-          font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    .dd { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
           color:#000; background:#fff; min-height:100vh;
           display:flex; align-items:center; justify-content:center; padding:20px; }
     .dd * { box-sizing:border-box; }
     .dd .caja { width:100%; max-width:400px; }
     .dd .num { font-variant-numeric:tabular-nums; letter-spacing:-0.02em; }
 
-    .dd .campo { width:100%; border:1.5px solid var(--linea); border-radius:8px;
+    .dd .campo { width:100%; border:1.5px solid #e4e4e4; border-radius:8px;
                  padding:12px 13px; font-size:16px; background:#fff; color:#000;
                  font-family:inherit; transition:border-color .18s; }
     .dd .campo:focus { outline:none; border-color:#000; }
@@ -146,55 +173,55 @@ export default function PaginaDeudor({ params }) {
     .dd .btn:active { transform:translateY(1px); }
     .dd .btn:disabled { opacity:.5; cursor:not-allowed; }
 
-    .dd .btn-2 { width:100%; border:1.5px solid var(--linea); background:#fff; color:#000;
+    .dd .btn-2 { width:100%; border:1.5px solid #e4e4e4; background:#fff; color:#000;
                  font-weight:600; font-size:15px; padding:13px 16px; border-radius:8px;
                  cursor:pointer; font-family:inherit;
                  transition:border-color .2s, background .2s; }
-    .dd .btn-2:hover { border-color:#000; background:var(--humo); }
+    .dd .btn-2:hover { border-color:#000; background:#f4f4f4; }
     .dd .btn-2:disabled { opacity:.5; cursor:not-allowed; }
 
     .dd .chip { display:inline-flex; align-items:center; gap:5px; font-size:12px;
                 font-weight:600; padding:4px 10px; border-radius:99px;
-                border:1.5px solid var(--linea); }
+                border:1.5px solid #e4e4e4; }
 
     @keyframes surge { from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none} }
     .dd .surge { animation:surge .3s ease both; }
     @media (prefers-reduced-motion:reduce) { .dd * { animation:none !important; } }
   `;
 
+  const Marco = ({ children }) => (
+    <div className="dd">
+      <style>{CSS}</style>
+      {children}
+    </div>
+  );
+
   /* ------------------------ cargando ------------------------ */
   if (cargando) {
-    return (
-      <div className="dd">
-        <style>{CSS}</style>
-        <p style={{ color: "#8a8a8a", fontSize: 15 }}>Un momento...</p>
-      </div>
-    );
+    return <Marco><p style={{ color: "#8a8a8a", fontSize: 15 }}>Un momento...</p></Marco>;
   }
 
   /* ---------------------- link invalido --------------------- */
   if (noExiste || !deuda) {
     return (
-      <div className="dd">
-        <style>{CSS}</style>
+      <Marco>
         <div className="caja" style={{ textAlign: "center" }}>
           <AlertCircle size={30} style={{ margin: "0 auto 14px", display: "block" }} />
           <p style={{ fontWeight: 700, fontSize: 19, margin: 0 }}>
             Este link ya no esta activo
           </p>
           <p style={{ fontSize: 15, color: "#8a8a8a", marginTop: 8 }}>
-            Puede que la cuenta ya se haya cerrado. Pregunta directo con el negocio.
+            Pregunta directo con el negocio.
           </p>
         </div>
-      </div>
+      </Marco>
     );
   }
 
   /* -------------------- ya reporto el pago ------------------ */
   if (listo) {
     return (
-      <div className="dd">
-        <style>{CSS}</style>
+      <Marco>
         <div className="caja surge" style={{ textAlign: "center" }}>
           <div style={{
             display: "grid", placeItems: "center", width: 54, height: 54,
@@ -211,15 +238,14 @@ export default function PaginaDeudor({ params }) {
             Tu saldo se actualiza cuando lo haga.
           </p>
         </div>
-      </div>
+      </Marco>
     );
   }
 
   /* ------------------------ liquidada ----------------------- */
   if (deuda.estado === "paid") {
     return (
-      <div className="dd">
-        <style>{CSS}</style>
+      <Marco>
         <div className="caja surge" style={{ textAlign: "center" }}>
           <div style={{
             display: "grid", placeItems: "center", width: 54, height: 54,
@@ -235,26 +261,57 @@ export default function PaginaDeudor({ params }) {
             Tu cuenta con {deuda.negocio} esta al corriente.
           </p>
         </div>
-      </div>
+      </Marco>
     );
   }
 
   /* ------------------------ la deuda ------------------------ */
-  const atraso  = Number(deuda.dias_atraso || 0);
-  const vencida = atraso > 0;
+  const atraso   = Number(deuda.dias_atraso || 0);
+  const vencida  = atraso > 0;
+  const enLinea  = deuda.acepta_linea === true;
 
   return (
-    <div className="dd">
-      <style>{CSS}</style>
-
+    <Marco>
       <div className="caja surge">
         <p style={{ fontSize: 14, color: "#8a8a8a", margin: 0 }}>
           Hola {deuda.cliente},
         </p>
-        <p style={{ fontSize: 15, marginTop: 4, marginBottom: 24 }}>
+        <p style={{ fontSize: 15, marginTop: 4, marginBottom: 20 }}>
           esto es lo que debes en{" "}
           <span style={{ fontWeight: 700 }}>{deuda.negocio}</span>
         </p>
+
+        {/* aviso al volver de Mercado Pago */}
+        {regreso === "listo" && (
+          <div style={{
+            background: "#E8F5EC", color: "#0F7B3D", borderRadius: 8,
+            padding: "12px 14px", fontSize: 14, fontWeight: 600, marginBottom: 18,
+            display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <Check size={16} strokeWidth={3} />
+            Pago recibido, tu saldo se esta actualizando
+          </div>
+        )}
+        {regreso === "pendiente" && (
+          <div style={{
+            background: "#f4f4f4", borderRadius: 8, padding: "12px 14px",
+            fontSize: 14, fontWeight: 600, marginBottom: 18,
+            display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <Clock size={16} />
+            Tu pago esta en proceso
+          </div>
+        )}
+        {regreso === "fallo" && (
+          <div style={{
+            background: "#FCEBE9", color: "#C0392B", borderRadius: 8,
+            padding: "12px 14px", fontSize: 14, fontWeight: 600, marginBottom: 18,
+            display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <AlertCircle size={16} />
+            El pago no se completo
+          </div>
+        )}
 
         <div style={{
           border: `1.5px solid ${vencida ? "#C0392B" : "#e4e4e4"}`,
@@ -292,17 +349,79 @@ export default function PaginaDeudor({ params }) {
           </div>
         </div>
 
-        {!abriendo ? (
+        {/* ---------- menu ---------- */}
+        {modo === null && (
           <>
-            <button className="btn-2" onClick={() => setAbrir(true)}>
-              Ya pague, quiero avisar
+            {enLinea && (
+              <>
+                <button className="btn" onClick={() => setModo("linea")}>
+                  Pagar ahora
+                </button>
+                <p style={{ fontSize: 13, color: "#8a8a8a", margin: "10px 0 18px", textAlign: "center" }}>
+                  Con tarjeta o efectivo, por Mercado Pago
+                </p>
+              </>
+            )}
+
+            <button className="btn-2" onClick={() => setModo("aviso")}>
+              Ya pague por fuera, quiero avisar
             </button>
-            <p style={{ fontSize: 13, color: "#8a8a8a", marginTop: 14, lineHeight: 1.5 }}>
-              Paga como siempre lo haces con {deuda.negocio}. Aqui solo avisas
-              para que quede registrado.
+            <p style={{ fontSize: 13, color: "#8a8a8a", marginTop: 12, lineHeight: 1.5 }}>
+              Si le pagaste en efectivo o por transferencia a {deuda.negocio},
+              avisale aqui para que quede registrado.
             </p>
           </>
-        ) : (
+        )}
+
+        {/* ---------- pagar en linea ---------- */}
+        {modo === "linea" && (
+          <div className="surge">
+            <p style={{ fontWeight: 700, fontSize: 16, marginTop: 0, marginBottom: 16 }}>
+              Cuanto quieres pagar
+            </p>
+
+            <input className="campo num" type="number" inputMode="decimal"
+                   min="0" step="0.01" value={monto} disabled={enviando}
+                   onChange={(e) => setMonto(e.target.value)}
+                   style={{ marginBottom: 10 }} />
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+              <button className="btn-2" disabled={enviando}
+                      style={{ fontSize: 14, padding: "10px" }}
+                      onClick={() => setMonto(String(Number(deuda.saldo_cents) / 100))}>
+                Todo
+              </button>
+              <button className="btn-2" disabled={enviando}
+                      style={{ fontSize: 14, padding: "10px" }}
+                      onClick={() => setMonto(String(Math.round(Number(deuda.saldo_cents) / 200)))}>
+                Mitad
+              </button>
+            </div>
+
+            {error && (
+              <p style={{ fontSize: 14, color: "#C0392B", fontWeight: 500, marginBottom: 16 }}>
+                {error}
+              </p>
+            )}
+
+            <button className="btn" onClick={pagarEnLinea} disabled={enviando}>
+              {enviando ? "Un momento..." : "Continuar a Mercado Pago"}
+            </button>
+
+            <button className="btn-2" onClick={() => { setModo(null); setError(""); }}
+                    disabled={enviando} style={{ marginTop: 10 }}>
+              Cancelar
+            </button>
+
+            <p style={{ fontSize: 13, color: "#8a8a8a", marginTop: 14, lineHeight: 1.5 }}>
+              Vas a pagar en la pagina de Mercado Pago y regresas aqui.
+              Tu saldo se actualiza solo.
+            </p>
+          </div>
+        )}
+
+        {/* ---------- avisar pago por fuera ---------- */}
+        {modo === "aviso" && (
           <div className="surge">
             <p style={{ fontWeight: 700, fontSize: 16, marginTop: 0, marginBottom: 16 }}>
               Cuentanos de tu pago
@@ -329,9 +448,7 @@ export default function PaginaDeudor({ params }) {
             </select>
 
             {error && (
-              <p style={{
-                fontSize: 14, color: "#C0392B", fontWeight: 500, marginBottom: 16,
-              }}>
+              <p style={{ fontSize: 14, color: "#C0392B", fontWeight: 500, marginBottom: 16 }}>
                 {error}
               </p>
             )}
@@ -340,7 +457,7 @@ export default function PaginaDeudor({ params }) {
               {enviando ? "Enviando..." : "Enviar aviso"}
             </button>
 
-            <button className="btn-2" onClick={() => { setAbrir(false); setError(""); }}
+            <button className="btn-2" onClick={() => { setModo(null); setError(""); }}
                     disabled={enviando} style={{ marginTop: 10 }}>
               Cancelar
             </button>
@@ -358,6 +475,6 @@ export default function PaginaDeudor({ params }) {
           Cobriq
         </p>
       </div>
-    </div>
+    </Marco>
   );
 }
