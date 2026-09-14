@@ -42,6 +42,7 @@ export default function PaginaDeudor({ params }) {
   const [metodo, setMetodo]   = useState("transferencia");
   const [enviando, setEnviar] = useState(false);
   const [error, setError]     = useState("");
+  const [detalle, setDetalle] = useState("");
   const [listo, setListo]     = useState(false);
   const [regreso, setRegreso] = useState(null);
 
@@ -68,7 +69,6 @@ export default function PaginaDeudor({ params }) {
   };
 
   useEffect(() => {
-    /* Si viene de regreso de Mercado Pago, avisamos */
     const p = new URLSearchParams(window.location.search).get("pago");
     if (p) {
       setRegreso(p);
@@ -77,8 +77,7 @@ export default function PaginaDeudor({ params }) {
     traer();
   }, [token]);
 
-  /* Tras pagar, el webhook tarda unos segundos.
-     Recargamos el saldo un par de veces. */
+  /* Tras pagar, el webhook tarda unos segundos */
   useEffect(() => {
     if (regreso !== "listo") return;
     const t1 = setTimeout(traer, 3000);
@@ -89,6 +88,7 @@ export default function PaginaDeudor({ params }) {
   /* --------------------- pagar en linea --------------------- */
   const pagarEnLinea = async () => {
     setError("");
+    setDetalle("");
     const n = Number(monto);
 
     if (!n || n <= 0) { setError("Escribe cuanto vas a pagar."); return; }
@@ -109,18 +109,21 @@ export default function PaginaDeudor({ params }) {
       if (!d?.ok || !d?.url) {
         setEnviar(false);
         setError(d?.error || "No se pudo generar el cobro.");
+        setDetalle(d?.detalle || "");
         return;
       }
       window.location.href = d.url;
-    } catch {
+    } catch (e) {
       setEnviar(false);
       setError("No se pudo conectar. Intenta de nuevo.");
+      setDetalle(e?.message || "");
     }
   };
 
   /* --------------------- reportar pago ---------------------- */
   const reportar = async () => {
     setError("");
+    setDetalle("");
     const n = Number(monto);
 
     if (!n || n <= 0) { setError("Escribe cuanto pagaste."); return; }
@@ -196,6 +199,25 @@ export default function PaginaDeudor({ params }) {
     </div>
   );
 
+  /* Bloque de error, con detalle tecnico si lo hay */
+  const BloqueError = () =>
+    !error ? null : (
+      <div style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 14, color: "#C0392B", fontWeight: 500, margin: 0 }}>
+          {error}
+        </p>
+        {detalle && (
+          <p style={{
+            fontSize: 11, color: "#8a8a8a", marginTop: 6, marginBottom: 0,
+            wordBreak: "break-all", fontFamily: "ui-monospace, monospace",
+            background: "#f4f4f4", padding: "8px 10px", borderRadius: 6,
+          }}>
+            {detalle}
+          </p>
+        )}
+      </div>
+    );
+
   /* ------------------------ cargando ------------------------ */
   if (cargando) {
     return <Marco><p style={{ color: "#8a8a8a", fontSize: 15 }}>Un momento...</p></Marco>;
@@ -266,9 +288,9 @@ export default function PaginaDeudor({ params }) {
   }
 
   /* ------------------------ la deuda ------------------------ */
-  const atraso   = Number(deuda.dias_atraso || 0);
-  const vencida  = atraso > 0;
-  const enLinea  = deuda.acepta_linea === true;
+  const atraso  = Number(deuda.dias_atraso || 0);
+  const vencida = atraso > 0;
+  const enLinea = deuda.acepta_linea === true;
 
   return (
     <Marco>
@@ -281,7 +303,6 @@ export default function PaginaDeudor({ params }) {
           <span style={{ fontWeight: 700 }}>{deuda.negocio}</span>
         </p>
 
-        {/* aviso al volver de Mercado Pago */}
         {regreso === "listo" && (
           <div style={{
             background: "#E8F5EC", color: "#0F7B3D", borderRadius: 8,
@@ -398,17 +419,14 @@ export default function PaginaDeudor({ params }) {
               </button>
             </div>
 
-            {error && (
-              <p style={{ fontSize: 14, color: "#C0392B", fontWeight: 500, marginBottom: 16 }}>
-                {error}
-              </p>
-            )}
+            <BloqueError />
 
             <button className="btn" onClick={pagarEnLinea} disabled={enviando}>
               {enviando ? "Un momento..." : "Continuar a Mercado Pago"}
             </button>
 
-            <button className="btn-2" onClick={() => { setModo(null); setError(""); }}
+            <button className="btn-2"
+                    onClick={() => { setModo(null); setError(""); setDetalle(""); }}
                     disabled={enviando} style={{ marginTop: 10 }}>
               Cancelar
             </button>
@@ -447,17 +465,14 @@ export default function PaginaDeudor({ params }) {
               <option value="otro">Otro</option>
             </select>
 
-            {error && (
-              <p style={{ fontSize: 14, color: "#C0392B", fontWeight: 500, marginBottom: 16 }}>
-                {error}
-              </p>
-            )}
+            <BloqueError />
 
             <button className="btn" onClick={reportar} disabled={enviando}>
               {enviando ? "Enviando..." : "Enviar aviso"}
             </button>
 
-            <button className="btn-2" onClick={() => { setModo(null); setError(""); }}
+            <button className="btn-2"
+                    onClick={() => { setModo(null); setError(""); setDetalle(""); }}
                     disabled={enviando} style={{ marginTop: 10 }}>
               Cancelar
             </button>
