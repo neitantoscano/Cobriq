@@ -32,12 +32,29 @@ export function aCentavosCobro(valor) {
   return signo * (Math.abs(n) * 100 + parseInt(decimales, 10));
 }
 
-export async function crearCobroNuevo({ nombre, concepto, montoPesos }) {
+/* Deja solo digitos y quita el 52 de pais si viene pegado,
+   para que siempre queden los 10 de siempre. */
+export function limpiarTelefonoCobro(tel) {
+  let d = String(tel ?? "").replace(/\D/g, "");
+  if (d.length === 12 && d.startsWith("52")) d = d.slice(2);
+  if (d.length === 13 && d.startsWith("521")) d = d.slice(3);
+  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+  return d;
+}
+
+export async function crearCobroNuevo({ nombre, concepto, montoPesos, telefono }) {
   if (!nombre?.trim())   throw new Error("Escribe el nombre de quien paga.");
   if (!concepto?.trim()) throw new Error("Escribe que esta pagando.");
 
   const centavos = aCentavosCobro(montoPesos);
   if (centavos <= 0) throw new Error("El monto tiene que ser mayor a cero.");
+
+  /* El telefono es opcional, pero si lo escribio tiene que
+     servir: la base solo acepta 10 digitos exactos. */
+  const tel = limpiarTelefonoCobro(telefono);
+  if (tel !== "" && tel.length !== 10) {
+    throw new Error("El telefono debe traer 10 digitos, sin el 52.");
+  }
 
   const s = sb();
   const { data: { user } } = await s.auth.getUser();
@@ -49,6 +66,7 @@ export async function crearCobroNuevo({ nombre, concepto, montoPesos }) {
       owner_id: user.id,
       kind: "cobro",
       payer_name: nombre.trim(),
+      payer_phone: tel || null,
       concept: concepto.trim(),
       amount_cents: centavos,
       customer_id: null,
