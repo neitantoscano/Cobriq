@@ -39,6 +39,9 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
   const plan      = perfil?.plan ?? "trial";
   const conectado = perfil?.mp_connected === true;
 
+  const enPrueba     = plan === "trial" && diasPrueba !== null && diasPrueba > 0;
+  const yaFuePagando = Boolean(perfil?.stripe_customer_id);
+
   const aNumeros = (txt) =>
     txt
       .split(",")
@@ -68,123 +71,17 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
     });
   };
 
-  /* ---------- tarjeta del plan ---------- */
-  const tarjetaPlan = () => {
-    if (plan === "active") {
-      return (
-        <section
-          className="mb-8 rounded-lg p-4"
-          style={{ border: "1.5px solid var(--verde)", background: "var(--verde-suave)" }}
-        >
-          <div className="flex items-start gap-3">
-            <Check size={19} className="shrink-0 mt-0.5" style={{ color: "var(--verde)" }} />
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold text-sm">Tu plan esta activo</p>
-              <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
-                $249 al mes.{renueva ? ` Se renueva el ${renueva}.` : ""}
-              </p>
-              <div className="mt-3">
-                
-                  href="/api/stripe/portal"
-                  className="text-xs font-semibold inline-flex items-center gap-1"
-                  style={{ color: "var(--tenue)", textDecoration: "underline" }}
-                >
-                  Cambiar tarjeta o cancelar
-                  <ExternalLink size={12} />
-                </a>
-              </div>
-            </div>
-          </div>
-        </section>
-      );
-    }
+  const tituloSinPlan = enPrueba
+    ? diasPrueba === 1
+      ? "Te queda 1 dia de prueba"
+      : "Te quedan " + diasPrueba + " dias de prueba"
+    : plan === "canceled"
+      ? "Cancelaste tu plan"
+      : "Tu prueba termino";
 
-    if (plan === "past_due") {
-      return (
-        <section
-          className="mb-8 rounded-lg p-4"
-          style={{ border: "1.5px solid var(--rojo)" }}
-        >
-          <div className="flex items-start gap-3">
-            <AlertTriangle size={19} className="shrink-0 mt-0.5" style={{ color: "var(--rojo)" }} />
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold text-sm">No pudimos cobrar tu plan</p>
-              <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
-                Tu tarjeta rechazo el cargo. Cambiala para que Cobriq siga
-                trabajando.
-              </p>
-              <div className="mt-3">
-                
-                  href="/api/stripe/portal"
-                  className="btn btn-solido inline-flex items-center gap-1.5"
-                  style={{ textDecoration: "none" }}
-                >
-                  Cambiar tarjeta
-                  <ExternalLink size={14} />
-                </a>
-              </div>
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    /* trial, canceled o suspended */
-    const enPrueba = plan === "trial" && diasPrueba !== null && diasPrueba > 0;
-    const yaFuePagando = Boolean(perfil?.stripe_customer_id);
-
-    return (
-      <section
-        className="mb-8 rounded-lg p-4"
-        style={{ border: `1.5px solid ${enPrueba ? "var(--linea)" : "var(--rojo)"}` }}
-      >
-        <div className="flex items-start gap-3">
-          <Sparkles
-            size={19}
-            className="shrink-0 mt-0.5"
-            style={{ color: enPrueba ? "var(--tinta)" : "var(--rojo)" }}
-          />
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold text-sm">
-              {enPrueba
-                ? diasPrueba === 1
-                  ? "Te queda 1 dia de prueba"
-                  : `Te quedan ${diasPrueba} dias de prueba`
-                : plan === "canceled"
-                  ? "Cancelaste tu plan"
-                  : "Tu prueba termino"}
-            </p>
-            <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
-              {enPrueba
-                ? "Cuando se acabe vas a poder seguir viendo todo y registrando pagos, pero ya no podras dar de alta deudores nuevos."
-                : "Puedes seguir viendo todo y registrando pagos, pero ya no puedes dar de alta deudores nuevos. Activa el plan para volver a la normalidad."}
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-4">
-              
-                href="/api/stripe/suscribir"
-                className="btn btn-solido inline-flex items-center gap-1.5"
-                style={{ textDecoration: "none" }}
-              >
-                Activar plan &middot; $249 al mes
-                <ExternalLink size={14} />
-              </a>
-
-              {yaFuePagando && (
-                
-                  href="/api/stripe/portal"
-                  className="text-xs font-semibold inline-flex items-center gap-1"
-                  style={{ color: "var(--tenue)", textDecoration: "underline" }}
-                >
-                  Ver mis recibos
-                  <ExternalLink size={12} />
-                </a>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-    );
-  };
+  const textoSinPlan = enPrueba
+    ? "Cuando se acabe vas a poder seguir viendo todo y registrando pagos, pero ya no podras dar de alta deudores nuevos."
+    : "Puedes seguir viendo todo y registrando pagos, pero ya no puedes dar de alta deudores nuevos. Activa el plan para volver a la normalidad.";
 
   return (
     <div className="surge max-w-lg">
@@ -193,12 +90,91 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
         {perfil?.business_name} &middot; {perfil?.email}
       </p>
 
-      {tarjetaPlan()}
+      {/* ---------------- plan activo ---------------- */}
+      {plan === "active" && (
+        <section className="mb-8 rounded-lg p-4"
+                 style={{ border: "1.5px solid var(--verde)", background: "var(--verde-suave)" }}>
+          <div className="flex items-start gap-3">
+            <Check size={19} className="shrink-0 mt-0.5" style={{ color: "var(--verde)" }} />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-sm">Tu plan esta activo</p>
+              <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
+                $249 al mes.{renueva ? " Se renueva el " + renueva + "." : ""}
+              </p>
+              <div className="mt-3">
+                <a href="/api/stripe/portal"
+                   className="text-xs font-semibold inline-flex items-center gap-1"
+                   style={{ color: "var(--tenue)", textDecoration: "underline" }}>
+                  Cambiar tarjeta o cancelar
+                  <ExternalLink size={12} />
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ---------------- pago rechazado ---------------- */}
+      {plan === "past_due" && (
+        <section className="mb-8 rounded-lg p-4" style={{ border: "1.5px solid var(--rojo)" }}>
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={19} className="shrink-0 mt-0.5" style={{ color: "var(--rojo)" }} />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-sm">No pudimos cobrar tu plan</p>
+              <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
+                Tu tarjeta rechazo el cargo. Cambiala para que Cobriq siga trabajando.
+              </p>
+              <div className="mt-3">
+                <a href="/api/stripe/portal"
+                   className="btn btn-solido inline-flex items-center gap-1.5"
+                   style={{ textDecoration: "none" }}>
+                  Cambiar tarjeta
+                  <ExternalLink size={14} />
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ---------------- prueba o sin plan ---------------- */}
+      {plan !== "active" && plan !== "past_due" && (
+        <section className="mb-8 rounded-lg p-4"
+                 style={{ border: "1.5px solid " + (enPrueba ? "var(--linea)" : "var(--rojo)") }}>
+          <div className="flex items-start gap-3">
+            <Sparkles size={19} className="shrink-0 mt-0.5"
+                      style={{ color: enPrueba ? "var(--tinta)" : "var(--rojo)" }} />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-sm">{tituloSinPlan}</p>
+              <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
+                {textoSinPlan}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-4">
+                <a href="/api/stripe/suscribir"
+                   className="btn btn-solido inline-flex items-center gap-1.5"
+                   style={{ textDecoration: "none" }}>
+                  Activar plan &middot; $249 al mes
+                  <ExternalLink size={14} />
+                </a>
+
+                {yaFuePagando && (
+                  <a href="/api/stripe/portal"
+                     className="text-xs font-semibold inline-flex items-center gap-1"
+                     style={{ color: "var(--tenue)", textDecoration: "underline" }}>
+                    Ver mis recibos
+                    <ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ---------------- Mercado Pago ---------------- */}
       <section className="mb-8 rounded-lg p-4"
                style={{
-                 border: `1.5px solid ${conectado ? "var(--verde)" : "var(--linea)"}`,
+                 border: "1.5px solid " + (conectado ? "var(--verde)" : "var(--linea)"),
                  background: conectado ? "var(--verde-suave)" : "transparent",
                }}>
         <div className="flex items-start gap-3">
