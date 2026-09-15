@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  LayoutGrid, Users, Settings, Search, UserPlus, X, Check, Menu,
+  LayoutGrid, Users, Settings, Search, X, Check, Menu,
   AlertCircle, Receipt,
 } from "lucide-react";
 
@@ -14,6 +14,7 @@ import Clientes from "./partes/Clientes";
 import Ajustes from "./partes/Ajustes";
 import Cobrar from "./partes/Cobrar";
 import Cobros from "./partes/Cobros";
+import Logo from "./partes/Logo";
 import ModalCobro from "./partes/ModalCobro";
 import { ModalDeuda, ModalDeudor, ModalCliente, ModalPago } from "./partes/Modales";
 
@@ -456,8 +457,7 @@ export default function Page() {
              style={{ borderRight: "1px solid var(--linea)" }}>
         <div>
           <div className="flex items-center gap-2 px-2 pb-7 pt-1">
-            <div className="grid place-items-center w-7 h-7 rounded font-bold text-sm"
-                 style={{ background: "#000", color: "#fff" }}>C</div>
+            <Logo alto={30} />
             <span className="font-bold tracking-tight text-lg">Cobriq</span>
           </div>
           <nav className="flex flex-col gap-1">
@@ -499,11 +499,11 @@ export default function Page() {
                    value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
           </div>
 
-          <button className="btn btn-solido flex items-center gap-1.5 shrink-0"
-                  onClick={() => abrirModal({ tipo: "deudor" })}>
-            <UserPlus size={15} strokeWidth={2.5} />
-            <span className="hidden sm:inline">Nuevo deudor</span>
-          </button>
+          {/* En computadora el logo ya vive en la barra lateral,
+              asi que aqui solo sale en celular. */}
+          <span className="md:hidden shrink-0">
+            <Logo alto={28} />
+          </span>
         </header>
 
         <main className="flex-1 px-4 md:px-8 py-6 max-w-5xl w-full">
@@ -588,7 +588,10 @@ export default function Page() {
           <div className="w-60 h-full p-4 surge" style={{ background: "var(--papel)" }}
                onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between pb-6">
-              <span className="font-bold text-lg tracking-tight">Cobriq</span>
+              <span className="flex items-center gap-2">
+                <Logo alto={28} />
+                <span className="font-bold text-lg tracking-tight">Cobriq</span>
+              </span>
               <button className="btn-ico" onClick={cerrarMenu}><X size={16} /></button>
             </div>
             {navegacion.map((n) => (
