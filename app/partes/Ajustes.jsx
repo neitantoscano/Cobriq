@@ -36,8 +36,8 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
     }
   }, [perfil?.trial_ends_at, perfil?.current_period_end]);
 
-  const plan       = perfil?.plan ?? "trial";
-  const conectado  = perfil?.mp_connected === true;
+  const plan      = perfil?.plan ?? "trial";
+  const conectado = perfil?.mp_connected === true;
 
   const aNumeros = (txt) =>
     txt
@@ -81,9 +81,18 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
             <div className="min-w-0 flex-1">
               <p className="font-semibold text-sm">Tu plan esta activo</p>
               <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
-                $249 al mes.{renueva ? ` Se renueva el ${renueva}.` : ""} Puedes
-                cancelar cuando quieras.
+                $249 al mes.{renueva ? ` Se renueva el ${renueva}.` : ""}
               </p>
+              <div className="mt-3">
+                
+                  href="/api/stripe/portal"
+                  className="text-xs font-semibold inline-flex items-center gap-1"
+                  style={{ color: "var(--tenue)", textDecoration: "underline" }}
+                >
+                  Cambiar tarjeta o cancelar
+                  <ExternalLink size={12} />
+                </a>
+              </div>
             </div>
           </div>
         </section>
@@ -101,16 +110,16 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
             <div className="min-w-0 flex-1">
               <p className="font-semibold text-sm">No pudimos cobrar tu plan</p>
               <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
-                Tu tarjeta rechazo el cargo. Actualizala para que Cobriq siga
+                Tu tarjeta rechazo el cargo. Cambiala para que Cobriq siga
                 trabajando.
               </p>
               <div className="mt-3">
                 
-                  href="/api/stripe/suscribir"
+                  href="/api/stripe/portal"
                   className="btn btn-solido inline-flex items-center gap-1.5"
                   style={{ textDecoration: "none" }}
                 >
-                  Actualizar pago
+                  Cambiar tarjeta
                   <ExternalLink size={14} />
                 </a>
               </div>
@@ -122,13 +131,12 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
 
     /* trial, canceled o suspended */
     const enPrueba = plan === "trial" && diasPrueba !== null && diasPrueba > 0;
+    const yaFuePagando = Boolean(perfil?.stripe_customer_id);
 
     return (
       <section
         className="mb-8 rounded-lg p-4"
-        style={{
-          border: `1.5px solid ${enPrueba ? "var(--linea)" : "var(--rojo)"}`,
-        }}
+        style={{ border: `1.5px solid ${enPrueba ? "var(--linea)" : "var(--rojo)"}` }}
       >
         <div className="flex items-start gap-3">
           <Sparkles
@@ -142,14 +150,16 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
                 ? diasPrueba === 1
                   ? "Te queda 1 dia de prueba"
                   : `Te quedan ${diasPrueba} dias de prueba`
-                : "Tu prueba termino"}
+                : plan === "canceled"
+                  ? "Cancelaste tu plan"
+                  : "Tu prueba termino"}
             </p>
             <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
               {enPrueba
                 ? "Cuando se acabe vas a poder seguir viendo todo y registrando pagos, pero ya no podras dar de alta deudores nuevos."
                 : "Puedes seguir viendo todo y registrando pagos, pero ya no puedes dar de alta deudores nuevos. Activa el plan para volver a la normalidad."}
             </p>
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap items-center gap-4">
               
                 href="/api/stripe/suscribir"
                 className="btn btn-solido inline-flex items-center gap-1.5"
@@ -158,6 +168,17 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
                 Activar plan &middot; $249 al mes
                 <ExternalLink size={14} />
               </a>
+
+              {yaFuePagando && (
+                
+                  href="/api/stripe/portal"
+                  className="text-xs font-semibold inline-flex items-center gap-1"
+                  style={{ color: "var(--tenue)", textDecoration: "underline" }}
+                >
+                  Ver mis recibos
+                  <ExternalLink size={12} />
+                </a>
+              )}
             </div>
           </div>
         </div>
