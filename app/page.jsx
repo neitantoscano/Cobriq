@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  LayoutGrid, Users, Settings, Search, UserPlus, X, Check, Menu, AlertCircle,
+  LayoutGrid, Users, Settings, Search, UserPlus, X, Check, Menu,
+  AlertCircle, Receipt,
 } from "lucide-react";
 
 import { CSS } from "./estilos";
@@ -12,6 +13,8 @@ import Deuda from "./partes/Deuda";
 import Clientes from "./partes/Clientes";
 import Ajustes from "./partes/Ajustes";
 import Cobrar from "./partes/Cobrar";
+import Cobros from "./partes/Cobros";
+import ModalCobro from "./partes/ModalCobro";
 import { ModalDeuda, ModalDeudor, ModalCliente, ModalPago } from "./partes/Modales";
 
 import {
@@ -22,6 +25,8 @@ import {
   guardarAjustes, anotarRecordatorio, armarMensaje,
   traerDeudas, traerPagos, traerClientes, traerRecordatorios,
 } from "./acciones";
+
+import { crearCobroNuevo, cancelarCobro } from "./accionesCobros";
 
 export default function Page() {
   const router = useRouter();
@@ -42,6 +47,13 @@ export default function Page() {
   const [ocupado, setOcupado]     = useState(false);
   const [errorModal, setErrorMod] = useState("");
   const [aviso, setAviso]         = useState(null);
+
+  /* Cobro recien creado, para ensenar su link sin cerrar el modal */
+  const [cobroCreado, setCobroCreado] = useState(null);
+
+  /* La direccion de la pagina se guarda ya montados, porque
+     window no existe cuando esto se dibuja en el servidor. */
+  const [origen, setOrigen] = useState("");
 
   const notificar = (texto, malo = false) => {
     setAviso({ texto, malo });
@@ -82,19 +94,15 @@ export default function Page() {
     aplicar(s);
   };
 
-  /* ----------- arranque: parametros de la URL + historial -----------
-     Todo junto en un solo efecto para que el estado de React y el
-     del historial siempre coincidan. Si estuvieran separados, el
-     boton de regresar mandaria a una pantalla distinta a la que
-     se esta viendo. */
+  /* ----------- arranque: parametros de la URL + historial ----------- */
   useEffect(() => {
+    setOrigen(window.location.origin);
+
     const params = new URLSearchParams(window.location.search);
     const mp     = params.get("mp");
     const plan   = params.get("plan");
     const pedida = params.get("vista");
 
-    /* Si Stripe o Mercado Pago regresaron al dueno, lo dejamos
-       parado en Ajustes, que es donde vive el boton que pico. */
     const inicial = {
       vista: pedida === "ajustes" || plan ? "ajustes" : "panel",
       deuda: null,
@@ -128,10 +136,6 @@ export default function Page() {
     if (plan) {
       const [texto, malo] = avisosPlan[plan] || ["Algo paso con tu plan", true];
       setTimeout(() => notificar(texto, malo), 700);
-
-      /* Stripe regresa al dueno antes de que su webhook nos avise.
-         Volvemos a leer el perfil unos segundos despues para que
-         la tarjeta ya diga "activo" sin que tenga que recargar. */
       if (plan === "listo") setTimeout(() => { cargar(); }, 4000);
     }
 
@@ -145,13 +149,21 @@ export default function Page() {
   const abrirDeuda  = (id) => navegar({ vista: "deuda", deuda: id });
   const irA         = (v)  => navegar({ vista: v, deuda: null });
   const irACobrar   = ()   => navegar({ vista: "cobrar", deuda: null });
+  const irACobros   = ()   => navegar({ vista: "cobros", deuda: null });
   const abrirModal  = (m)  => navegar({ vista, deuda: deudaId, modal: m });
   const abrirMenu   = ()   => navegar({ vista, deuda: deudaId, modal, menu: true });
-  const cerrarModal = ()   => { if (modal) window.history.back(); };
   const cerrarMenu  = ()   => { if (menuAbierto) window.history.back(); };
   const regresar    = ()   => window.history.back();
 
-  /* Cambiar de modal sin apilar historial */
+  /* Al cerrar el modal de cobro hay que olvidar el recien creado,
+     si no, la proxima vez abriria directo en la pantalla del link. */
+  const cerrarModal = () => {
+    if (modal) {
+      setCobroCreado(null);
+      window.history.back();
+    }
+  };
+
   const cambiarModal = (m) =>
     reemplazar({ vista, deuda: deudaId, modal: m });
 
@@ -186,7 +198,6 @@ export default function Page() {
     }
   };
 
-  /* Cliente solo */
   const guardarCliente = async (form) => {
     const ok = await hacer(async () => {
       await crearClienteNuevo(form);
@@ -196,7 +207,6 @@ export default function Page() {
     if (ok) cerrarModal();
   };
 
-  /* Deudor nuevo: cliente + deuda de un jalon */
   const guardarDeudor = async (form) => {
     const ok = await hacer(async () => {
       const cliente = await crearClienteNuevo({
@@ -213,8 +223,6 @@ export default function Page() {
           vence: form.vence,
         });
       } catch (e) {
-        /* El cliente si se creo, la deuda no. Lo decimos claro
-           para que no vuelva a capturar a la persona. */
         await refrescarTodo();
         throw new Error(
           `${form.nombre} ya quedo guardado, pero la deuda no: ${e.message}`
@@ -242,6 +250,27 @@ export default function Page() {
       await refrescarDeudasYPagos();
     }, "Deuda registrada");
     if (ok) cerrarModal();
+  };
+
+  /* ---- cobros sueltos ---- */
+  const guardarCobro = async (form) => {
+    await hacer(async () => {
+      const nuevo = await crearCobroNuevo(form);
+      await refrescarDeudasYPagos();
+      /* No se cierra: el modal pasa a ensenar el link. */
+      setCobroCreado(nuevo);
+    });
+  };
+
+  const otroCobro = () => setCobroCreado(null);
+
+  const quitarCobro = async (c) => {
+    if (!window.confirm(`Cancelar el cobro de ${c.payer_name}? Su link dejara de servir.`))
+      return;
+    await hacer(async () => {
+      await cancelarCobro(c.id);
+      await refrescarDeudasYPagos();
+    }, "Cobro cancelado");
   };
 
   const guardarPago = async (form) => {
@@ -379,8 +408,14 @@ export default function Page() {
     );
   }
 
+  /* Las deudas y los cobros viven en la misma tabla, asi que se
+     separan aqui. Un solo viaje a la base, dos listas limpias. */
+  const soloDeudas = datos.deudas.filter((d) => d.kind !== "cobro");
+  const soloCobros = datos.deudas.filter((d) => d.kind === "cobro");
+
   const navegacion = [
     { id: "panel",    icono: LayoutGrid, texto: "Panel" },
+    { id: "cobros",   icono: Receipt,    texto: "Cobros" },
     { id: "clientes", icono: Users,      texto: "Clientes" },
     { id: "ajustes",  icono: Settings,   texto: "Ajustes" },
   ];
@@ -389,14 +424,10 @@ export default function Page() {
     vista === id ||
     (id === "panel" && (vista === "deuda" || vista === "cobrar"));
 
-  /* --- texto del recuadro de plan en la barra lateral ---
-     Este bloque solo se dibuja despues de que cargaron los datos,
-     que pasa ya en el navegador, asi que la fecha no causa
-     diferencia con lo que pinto el servidor. */
   const estadoPlan = () => {
     const p = datos.perfil.plan ?? "trial";
 
-    if (p === "active") return { texto: "Plan activo", color: "var(--verde)" };
+    if (p === "active")   return { texto: "Plan activo", color: "var(--verde)" };
     if (p === "past_due") return { texto: "Revisa tu pago", color: "var(--rojo)" };
 
     if (p === "trial" && datos.perfil.trial_ends_at) {
@@ -478,18 +509,27 @@ export default function Page() {
         <main className="flex-1 px-4 md:px-8 py-6 max-w-5xl w-full">
           {vista === "panel" && (
             <Panel
-              deudas={datos.deudas} pagos={datos.pagos} clientes={datos.clientes}
+              deudas={soloDeudas} cobros={soloCobros}
+              pagos={datos.pagos} clientes={datos.clientes}
               filtro={filtro} setFiltro={setFiltro} busqueda={busqueda}
               abrirDeuda={abrirDeuda} abrirModal={abrirModal}
-              irACobrar={irACobrar}
+              irACobrar={irACobrar} irACobros={irACobros}
               onConfirmarPago={confirmarPago} onRechazarPago={rechazarPago}
               ocupado={ocupado}
             />
           )}
 
+          {vista === "cobros" && (
+            <Cobros
+              cobros={soloCobros} busqueda={busqueda}
+              abrirModal={abrirModal} onCancelar={quitarCobro}
+              ocupado={ocupado} origen={origen}
+            />
+          )}
+
           {vista === "cobrar" && (
             <Cobrar
-              deudas={datos.deudas} clientes={datos.clientes}
+              deudas={soloDeudas} clientes={datos.clientes}
               regresar={regresar} onMandar={mandarDesdeCobrar}
               armarTexto={armarTexto} ocupado={ocupado}
             />
@@ -510,7 +550,7 @@ export default function Page() {
 
           {vista === "clientes" && (
             <Clientes
-              clientes={datos.clientes} deudas={datos.deudas} busqueda={busqueda}
+              clientes={datos.clientes} deudas={soloDeudas} busqueda={busqueda}
               abrirModal={abrirModal} onBorrar={quitarCliente} ocupado={ocupado}
             />
           )}
@@ -594,6 +634,11 @@ export default function Page() {
                     irANuevoDeudor={() => cambiarModal({ tipo: "deudor" })}
                     ocupado={ocupado} error={errorModal} />
       )}
+      {modal?.tipo === "cobro" && (
+        <ModalCobro cerrar={cerrarModal} onGuardar={guardarCobro}
+                    creado={cobroCreado} onOtro={otroCobro}
+                    ocupado={ocupado} error={errorModal} origen={origen} />
+      )}
       {modal?.tipo === "cliente" && (
         <ModalCliente cerrar={cerrarModal} onGuardar={guardarCliente}
                       ocupado={ocupado} error={errorModal} />
@@ -618,7 +663,7 @@ function Esqueleto() {
       <aside className="hidden md:block w-56 shrink-0 p-4"
              style={{ borderRight: "1px solid var(--linea)" }}>
         <div className="hueso" style={{ height: 28, width: 110, marginBottom: 28 }} />
-        {[0, 1, 2].map((i) => (
+        {[0, 1, 2, 3].map((i) => (
           <div key={i} className="hueso" style={{ height: 34, marginBottom: 8 }} />
         ))}
       </aside>
