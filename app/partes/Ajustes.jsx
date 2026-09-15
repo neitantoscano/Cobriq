@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { Check, LogOut, CreditCard, ExternalLink } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Check, LogOut, CreditCard, ExternalLink, Sparkles, AlertTriangle } from "lucide-react";
 
-/* Ajustes: Mercado Pago, cuando mandar recordatorios,
+/* Ajustes: plan, Mercado Pago, cuando mandar recordatorios,
    plantilla del mensaje y cerrar sesion. */
 
 export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }) {
@@ -15,7 +15,29 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
   const [plantilla, setPlant] = useState(ajustes?.message_template ?? "");
   const [error, setError]     = useState("");
 
-  const conectado = perfil?.mp_connected === true;
+  /* Las fechas se calculan ya montado el componente para que el
+     servidor y el navegador no dibujen cosas distintas. */
+  const [diasPrueba, setDiasPrueba] = useState(null);
+  const [renueva, setRenueva]       = useState("");
+
+  useEffect(() => {
+    if (perfil?.trial_ends_at) {
+      const ms = new Date(perfil.trial_ends_at).getTime() - Date.now();
+      setDiasPrueba(Math.max(0, Math.ceil(ms / 86400000)));
+    }
+    if (perfil?.current_period_end) {
+      setRenueva(
+        new Date(perfil.current_period_end).toLocaleDateString("es-MX", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        })
+      );
+    }
+  }, [perfil?.trial_ends_at, perfil?.current_period_end]);
+
+  const plan       = perfil?.plan ?? "trial";
+  const conectado  = perfil?.mp_connected === true;
 
   const aNumeros = (txt) =>
     txt
@@ -46,12 +68,111 @@ export default function Ajustes({ perfil, ajustes, onGuardar, onSalir, ocupado }
     });
   };
 
+  /* ---------- tarjeta del plan ---------- */
+  const tarjetaPlan = () => {
+    if (plan === "active") {
+      return (
+        <section
+          className="mb-8 rounded-lg p-4"
+          style={{ border: "1.5px solid var(--verde)", background: "var(--verde-suave)" }}
+        >
+          <div className="flex items-start gap-3">
+            <Check size={19} className="shrink-0 mt-0.5" style={{ color: "var(--verde)" }} />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-sm">Tu plan esta activo</p>
+              <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
+                $249 al mes.{renueva ? ` Se renueva el ${renueva}.` : ""} Puedes
+                cancelar cuando quieras.
+              </p>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    if (plan === "past_due") {
+      return (
+        <section
+          className="mb-8 rounded-lg p-4"
+          style={{ border: "1.5px solid var(--rojo)" }}
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={19} className="shrink-0 mt-0.5" style={{ color: "var(--rojo)" }} />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-sm">No pudimos cobrar tu plan</p>
+              <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
+                Tu tarjeta rechazo el cargo. Actualizala para que Cobriq siga
+                trabajando.
+              </p>
+              <div className="mt-3">
+                
+                  href="/api/stripe/suscribir"
+                  className="btn btn-solido inline-flex items-center gap-1.5"
+                  style={{ textDecoration: "none" }}
+                >
+                  Actualizar pago
+                  <ExternalLink size={14} />
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    /* trial, canceled o suspended */
+    const enPrueba = plan === "trial" && diasPrueba !== null && diasPrueba > 0;
+
+    return (
+      <section
+        className="mb-8 rounded-lg p-4"
+        style={{
+          border: `1.5px solid ${enPrueba ? "var(--linea)" : "var(--rojo)"}`,
+        }}
+      >
+        <div className="flex items-start gap-3">
+          <Sparkles
+            size={19}
+            className="shrink-0 mt-0.5"
+            style={{ color: enPrueba ? "var(--tinta)" : "var(--rojo)" }}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-sm">
+              {enPrueba
+                ? diasPrueba === 1
+                  ? "Te queda 1 dia de prueba"
+                  : `Te quedan ${diasPrueba} dias de prueba`
+                : "Tu prueba termino"}
+            </p>
+            <p className="text-xs mt-1" style={{ color: "var(--tenue)" }}>
+              {enPrueba
+                ? "Cuando se acabe vas a poder seguir viendo todo y registrando pagos, pero ya no podras dar de alta deudores nuevos."
+                : "Puedes seguir viendo todo y registrando pagos, pero ya no puedes dar de alta deudores nuevos. Activa el plan para volver a la normalidad."}
+            </p>
+            <div className="mt-3">
+              
+                href="/api/stripe/suscribir"
+                className="btn btn-solido inline-flex items-center gap-1.5"
+                style={{ textDecoration: "none" }}
+              >
+                Activar plan &middot; $249 al mes
+                <ExternalLink size={14} />
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  };
+
   return (
     <div className="surge max-w-lg">
       <h1 className="text-2xl font-bold tracking-tight mb-1">Ajustes</h1>
       <p className="text-sm mb-8" style={{ color: "var(--tenue)" }}>
-        {perfil?.business_name} · {perfil?.email}
+        {perfil?.business_name} &middot; {perfil?.email}
       </p>
+
+      {tarjetaPlan()}
 
       {/* ---------------- Mercado Pago ---------------- */}
       <section className="mb-8 rounded-lg p-4"
