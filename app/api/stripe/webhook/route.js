@@ -13,6 +13,40 @@ const admin = () =>
     { auth: { persistSession: false } }
   );
 
+/* Stripe movio la fecha de renovacion: antes vivia en la suscripcion,
+   ahora vive en cada item de la suscripcion. Buscamos en los dos
+   lugares y nos quedamos con la fecha mas lejana. Si no hay ninguna,
+   devolvemos null en vez de tronar. */
+function finDePeriodo(sub) {
+  const candidatos = [];
+
+  const items = sub?.items?.data ?? [];
+  for (const it of items) {
+    if (typeof it?.current_period_end === "number") {
+      candidatos.push(it.current_period_end);
+    }
+  }
+
+  /* Por si algun dia vuelve, o si la cuenta usa una version vieja */
+  if (typeof sub?.current_period_end === "number") {
+    candidatos.push(sub.current_period_end);
+  }
+
+  if (candidatos.length === 0) return null;
+
+  return new Date(Math.max(...candidatos) * 1000).toISOString();
+}
+
+/* Saca el id de la suscripcion de una factura. Tambien cambio de
+   lugar entre versiones de la API, asi que revisamos ambos. */
+function subDeFactura(f) {
+  if (typeof f?.subscription === "string") return f.subscription;
+  const anidado = f?.parent?.subscription_details?.subscription;
+  if (typeof anidado === "string") return anidado;
+  if (typeof anidado?.id === "string") return anidado.id;
+  return null;
+}
+
 export async function POST(request) {
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   const firma  = request.headers.get("stripe-signature");
@@ -28,15 +62,40 @@ export async function POST(request) {
       process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (e) {
-    console.error("stripe firma invalida");
+    console.error("stripe firma invalida:", e.message);
     return NextResponse.json({ error: "firma invalida" }, { status: 400 });
   }
 
   const sb = admin();
 
+  /* Quita las llaves en null para no borrar datos buenos
+     con valores vacios. */
+  const limpiar = (obj) => {
+    const salida = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v !== null && v !== undefined) salida[k] = v;
+    }
+    return salida;
+  };
+
   const porCustomer = async (customerId, cambios) => {
-    if (!customerId) return;
-    await sb.from("profiles").update(cambios).eq("stripe_customer_id", customerId);
+    if (!customerId) {
+      console.error("stripe webhook: evento sin customer", evento.type);
+      return;
+    }
+    const { data, error } = await sb
+      .from("profiles")
+      .update(cambios)
+      .eq("stripe_customer_id", customerId)
+      .select("id");
+
+    if (error) {
+      console.error("stripe webhook supabase:", error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      console.error("stripe webhook: ningun perfil con customer", customerId);
+    }
   };
 
   try {
@@ -48,12 +107,24 @@ export async function POST(request) {
 
         const sub = await stripe.subscriptions.retrieve(s.subscription);
 
-        await sb.from("profiles").update({
+        const cambios = limpiar({
           plan: "active",
           stripe_customer_id: s.customer,
           stripe_subscription_id: sub.id,
-          current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
-        }).eq("id", s.client_reference_id);
+          current_period_end: finDePeriodo(sub),
+        });
+
+        /* Aqui si sabemos exactamente de quien es, porque mandamos
+           su id al abrir el checkout. */
+        if (s.client_reference_id) {
+          const { error } = await sb
+            .from("profiles")
+            .update(cambios)
+            .eq("id", s.client_reference_id);
+          if (error) console.error("stripe checkout supabase:", error.message);
+        } else {
+          await porCustomer(s.customer, cambios);
+        }
         break;
       }
 
@@ -66,11 +137,11 @@ export async function POST(request) {
           : sub.status === "past_due" || sub.status === "unpaid" ? "past_due"
           : "canceled";
 
-        await porCustomer(sub.customer, {
+        await porCustomer(sub.customer, limpiar({
           plan,
           stripe_subscription_id: sub.id,
-          current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
-        });
+          current_period_end: finDePeriodo(sub),
+        }));
         break;
       }
 
@@ -85,12 +156,16 @@ export async function POST(request) {
 
       case "invoice.payment_succeeded": {
         const f = evento.data.object;
-        if (!f.subscription) break;
-        const sub = await stripe.subscriptions.retrieve(f.subscription);
-        await porCustomer(f.customer, {
+        const subId = subDeFactura(f);
+        if (!subId) break;
+
+        const sub = await stripe.subscriptions.retrieve(subId);
+
+        await porCustomer(f.customer, limpiar({
           plan: "active",
-          current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
-        });
+          stripe_subscription_id: sub.id,
+          current_period_end: finDePeriodo(sub),
+        }));
         break;
       }
 
