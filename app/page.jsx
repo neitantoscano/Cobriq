@@ -63,25 +63,6 @@ export default function Page() {
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  /* ------------- aviso al volver de Mercado Pago ------------ */
-  useEffect(() => {
-    const mp = new URLSearchParams(window.location.search).get("mp");
-    if (!mp) return;
-
-    window.history.replaceState({}, "", window.location.pathname);
-
-    const textos = {
-      listo:      ["Mercado Pago conectado", false],
-      cancelado:  ["No autorizaste la conexion", true],
-      invalido:   ["La conexion no se pudo verificar", true],
-      fallo:      ["No se pudo conectar Mercado Pago", true],
-      sin_config: ["Falta configurar Mercado Pago", true],
-    };
-
-    const [texto, malo] = textos[mp] || ["Algo paso con Mercado Pago", true];
-    setTimeout(() => notificar(texto, malo), 700);
-  }, []);
-
   /* ------------------ historial del navegador --------------- */
   const aplicar = (s) => {
     setVista(s.vista ?? "panel");
@@ -101,15 +82,65 @@ export default function Page() {
     aplicar(s);
   };
 
+  /* ----------- arranque: parametros de la URL + historial -----------
+     Todo junto en un solo efecto para que el estado de React y el
+     del historial siempre coincidan. Si estuvieran separados, el
+     boton de regresar mandaria a una pantalla distinta a la que
+     se esta viendo. */
   useEffect(() => {
-    window.history.replaceState(
-      { cq: { vista: "panel", deuda: null, modal: null, menu: false } }, ""
-    );
+    const params = new URLSearchParams(window.location.search);
+    const mp     = params.get("mp");
+    const plan   = params.get("plan");
+    const pedida = params.get("vista");
+
+    /* Si Stripe o Mercado Pago regresaron al dueno, lo dejamos
+       parado en Ajustes, que es donde vive el boton que pico. */
+    const inicial = {
+      vista: pedida === "ajustes" || plan ? "ajustes" : "panel",
+      deuda: null,
+      modal: null,
+      menu: false,
+    };
+
+    aplicar(inicial);
+    window.history.replaceState({ cq: inicial }, "", window.location.pathname);
+
+    const avisosMp = {
+      listo:      ["Mercado Pago conectado", false],
+      cancelado:  ["No autorizaste la conexion", true],
+      invalido:   ["La conexion no se pudo verificar", true],
+      fallo:      ["No se pudo conectar Mercado Pago", true],
+      sin_config: ["Falta configurar Mercado Pago", true],
+    };
+
+    const avisosPlan = {
+      listo:     ["Listo, tu plan quedo activo", false],
+      cancelado: ["No se completo el pago", false],
+      fallo:     ["No se pudo abrir el pago", true],
+      sincuenta: ["Todavia no tienes un plan que administrar", true],
+    };
+
+    if (mp) {
+      const [texto, malo] = avisosMp[mp] || ["Algo paso con Mercado Pago", true];
+      setTimeout(() => notificar(texto, malo), 700);
+    }
+
+    if (plan) {
+      const [texto, malo] = avisosPlan[plan] || ["Algo paso con tu plan", true];
+      setTimeout(() => notificar(texto, malo), 700);
+
+      /* Stripe regresa al dueno antes de que su webhook nos avise.
+         Volvemos a leer el perfil unos segundos despues para que
+         la tarjeta ya diga "activo" sin que tenga que recargar. */
+      if (plan === "listo") setTimeout(() => { cargar(); }, 4000);
+    }
+
     const alRegresar = (e) =>
       aplicar((e.state && e.state.cq) || { vista: "panel" });
+
     window.addEventListener("popstate", alRegresar);
     return () => window.removeEventListener("popstate", alRegresar);
-  }, []);
+  }, [cargar]);
 
   const abrirDeuda  = (id) => navegar({ vista: "deuda", deuda: id });
   const irA         = (v)  => navegar({ vista: v, deuda: null });
@@ -358,6 +389,33 @@ export default function Page() {
     vista === id ||
     (id === "panel" && (vista === "deuda" || vista === "cobrar"));
 
+  /* --- texto del recuadro de plan en la barra lateral ---
+     Este bloque solo se dibuja despues de que cargaron los datos,
+     que pasa ya en el navegador, asi que la fecha no causa
+     diferencia con lo que pinto el servidor. */
+  const estadoPlan = () => {
+    const p = datos.perfil.plan ?? "trial";
+
+    if (p === "active") return { texto: "Plan activo", color: "var(--verde)" };
+    if (p === "past_due") return { texto: "Revisa tu pago", color: "var(--rojo)" };
+
+    if (p === "trial" && datos.perfil.trial_ends_at) {
+      const dias = Math.max(
+        0,
+        Math.ceil((new Date(datos.perfil.trial_ends_at).getTime() - Date.now()) / 86400000)
+      );
+      if (dias > 0)
+        return {
+          texto: dias === 1 ? "Queda 1 dia de prueba" : `Quedan ${dias} dias de prueba`,
+          color: dias <= 3 ? "var(--rojo)" : "var(--tinta)",
+        };
+    }
+
+    return { texto: "Prueba terminada", color: "var(--rojo)" };
+  };
+
+  const plan = estadoPlan();
+
   return (
     <div className="cq flex min-h-screen">
       <style>{CSS}</style>
@@ -380,12 +438,15 @@ export default function Page() {
             ))}
           </nav>
         </div>
-        <div className="rounded-lg p-3" style={{ background: "var(--humo)" }}>
+
+        <button onClick={() => irA("ajustes")}
+                className="rounded-lg p-3 text-left w-full"
+                style={{ background: "var(--humo)", border: 0, cursor: "pointer" }}>
           <p className="text-xs" style={{ color: "var(--tenue)" }}>Plan base · $249 al mes</p>
-          <p className="text-xs font-semibold mt-1">
-            {datos.perfil.plan === "trial" ? "Periodo de prueba" : "Activo"}
+          <p className="text-xs font-semibold mt-1" style={{ color: plan.color }}>
+            {plan.texto}
           </p>
-        </div>
+        </button>
       </aside>
 
       {/* columna principal */}
@@ -496,6 +557,13 @@ export default function Page() {
                 <n.icono size={17} /> {n.texto}
               </button>
             ))}
+
+            <div className="rounded-lg p-3 mt-6" style={{ background: "var(--humo)" }}>
+              <p className="text-xs" style={{ color: "var(--tenue)" }}>Plan base · $249 al mes</p>
+              <p className="text-xs font-semibold mt-1" style={{ color: plan.color }}>
+                {plan.texto}
+              </p>
+            </div>
           </div>
         </div>
       )}
