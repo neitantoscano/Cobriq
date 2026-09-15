@@ -1,13 +1,14 @@
 "use client";
 
-import { Check, Clock, Plus, UserPlus, MessageCircle } from "lucide-react";
+import { Check, Clock, Plus, UserPlus, MessageCircle, Receipt, ChevronRight } from "lucide-react";
 import { pesos, diasDeAtraso, fechaCorta } from "../acciones";
 
 /* Pantalla principal: aviso de cobro, total por cobrar, contadores
-   por estado, pagos reportados y la lista de deudas. */
+   por estado, cobros sueltos, pagos reportados y la lista de deudas. */
 
 export default function Panel({
   deudas,
+  cobros,
   pagos,
   clientes,
   filtro,
@@ -16,13 +17,14 @@ export default function Panel({
   abrirDeuda,
   abrirModal,
   irACobrar,
+  irACobros,
   onConfirmarPago,
   onRechazarPago,
   ocupado,
 }) {
   const nombreDe = (id) => clientes.find((c) => c.id === id)?.name ?? "—";
 
-  /* --- totales --- */
+  /* --- totales de deudas --- */
   const activas   = deudas.filter((d) => d.status !== "cancelled");
   const pend      = activas.filter((d) => d.status === "pending");
   const vencidas  = pend.filter((d) => diasDeAtraso(d.due_date) > 0);
@@ -34,6 +36,16 @@ export default function Panel({
   const vencido      = vencidas.reduce((s, d) => s + d.balance_cents, 0);
   const montoPorVenc = porVencer.reduce((s, d) => s + d.balance_cents, 0);
   const montoPagado  = pagadas.reduce((s, d) => s + d.amount_cents, 0);
+
+  /* --- totales de cobros sueltos, por separado ---
+     No se mezclan con las deudas: son ventas de una vez y
+     revolverlas haria que el numero grande mienta. */
+  const cobrosActivos = (cobros ?? []).filter((c) => c.status !== "cancelled");
+  const cobrosPend    = cobrosActivos.filter((c) => c.status === "pending");
+  const cobrosPagados = cobrosActivos.filter((c) => c.status === "paid");
+
+  const cobrosSinPagar = cobrosPend.reduce((s, c) => s + c.balance_cents, 0);
+  const cobrosCobrado  = cobrosActivos.reduce((s, c) => s + c.paid_cents, 0);
 
   const porRevisar = pagos.filter((p) => p.status === "pending_review");
 
@@ -121,7 +133,7 @@ export default function Panel({
       </section>
 
       {/* tres estados */}
-      <section className="grid grid-cols-3 gap-2 md:gap-3 pb-8 max-w-2xl">
+      <section className="grid grid-cols-3 gap-2 md:gap-3 pb-6 max-w-2xl">
         <Contador
           n={vencidas.length} etiqueta="Vencidas" monto={vencido}
           color="var(--rojo)" fondo="var(--rojo-suave)"
@@ -142,12 +154,53 @@ export default function Panel({
         />
       </section>
 
+      {/* cobros sueltos, contados aparte */}
+      <section className="pb-8 max-w-2xl">
+        <button onClick={irACobros}
+                className="w-full rounded-lg p-4 text-left flex items-center gap-4"
+                style={{
+                  border: "1.5px solid var(--linea)",
+                  background: "none",
+                  cursor: "pointer",
+                }}>
+          <div className="grid place-items-center w-9 h-9 rounded-lg shrink-0"
+               style={{ background: "var(--humo)" }}>
+            <Receipt size={17} />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-sm">Cobros extra</p>
+            {cobrosActivos.length === 0 ? (
+              <p className="text-xs mt-0.5" style={{ color: "var(--tenue)" }}>
+                Ventas de una vez, sin dar credito
+              </p>
+            ) : (
+              <p className="text-xs mt-0.5" style={{ color: "var(--tenue)" }}>
+                {cobrosPend.length > 0 && (
+                  <span className="num">
+                    {pesos(cobrosSinPagar)} sin pagar
+                  </span>
+                )}
+                {cobrosPend.length > 0 && cobrosPagados.length > 0 && " · "}
+                {cobrosPagados.length > 0 && (
+                  <span className="num font-semibold" style={{ color: "var(--verde)" }}>
+                    {pesos(cobrosCobrado)} cobrado
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+
+          <ChevronRight size={17} className="shrink-0" style={{ color: "var(--tenue)" }} />
+        </button>
+      </section>
+
       {/* pagos por confirmar */}
       {porRevisar.length > 0 && (
         <section className="mb-8 rounded-lg p-4" style={{ border: "1.5px solid #000" }}>
           <p className="font-semibold text-sm mb-3">Pagos que tus clientes reportaron</p>
           {porRevisar.map((p) => {
-            const d = deudas.find((x) => x.id === p.debt_id);
+            const d = [...deudas, ...(cobros ?? [])].find((x) => x.id === p.debt_id);
             return (
               <div key={p.id} className="flex items-center justify-between gap-3 py-2">
                 <div className="min-w-0">
