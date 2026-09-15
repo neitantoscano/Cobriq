@@ -4,8 +4,10 @@ import { useState, useEffect } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { Check, AlertCircle, Clock } from "lucide-react";
 
-/* Pantalla que ve el deudor al abrir su link.
-   No necesita cuenta. Puede pagar en linea o avisar que ya pago. */
+/* Pantalla que ve quien va a pagar al abrir su link.
+   Sirve para dos casos: una deuda a credito, que tiene fecha
+   de vencimiento, o un cobro suelto, que se paga de una vez.
+   Las palabras cambian segun cual sea. */
 
 const pesos = (c) =>
   (Number(c || 0) / 100).toLocaleString("es-MX", {
@@ -84,6 +86,10 @@ export default function PaginaDeudor({ params }) {
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [regreso]);
 
+  /* Es un cobro suelto, no una deuda a credito.
+     Se calcula aqui para usarlo en todas las pantallas. */
+  const esCobro = deuda?.tipo === "cobro";
+
   /* --------------------- pagar en linea --------------------- */
   const pagarEnLinea = async () => {
     setError("");
@@ -91,7 +97,9 @@ export default function PaginaDeudor({ params }) {
 
     if (!n || n <= 0) { setError("Escribe cuanto vas a pagar."); return; }
     if (Math.round(n * 100) > Number(deuda.saldo_cents)) {
-      setError("Ese monto es mayor a lo que debes.");
+      setError(esCobro
+        ? "Ese monto es mayor a lo que te estan cobrando."
+        : "Ese monto es mayor a lo que debes.");
       return;
     }
 
@@ -123,7 +131,9 @@ export default function PaginaDeudor({ params }) {
 
     if (!n || n <= 0) { setError("Escribe cuanto pagaste."); return; }
     if (Math.round(n * 100) > Number(deuda.saldo_cents)) {
-      setError("Ese monto es mayor a lo que debes.");
+      setError(esCobro
+        ? "Ese monto es mayor a lo que te estan cobrando."
+        : "Ese monto es mayor a lo que debes.");
       return;
     }
 
@@ -194,7 +204,7 @@ export default function PaginaDeudor({ params }) {
     </div>
   );
 
-  const Error = () =>
+  const Aviso = () =>
     !error ? null : (
       <p style={{
         fontSize: 14, color: "#C0392B", fontWeight: 500, marginBottom: 16,
@@ -242,7 +252,7 @@ export default function PaginaDeudor({ params }) {
           </p>
           <p style={{ fontSize: 15, color: "#8a8a8a", marginTop: 10, lineHeight: 1.5 }}>
             {deuda.negocio} va a revisar tu pago y lo confirma.
-            Tu saldo se actualiza cuando lo haga.
+            {esCobro ? "" : " Tu saldo se actualiza cuando lo haga."}
           </p>
         </div>
       </Marco>
@@ -262,10 +272,12 @@ export default function PaginaDeudor({ params }) {
             <Check size={28} strokeWidth={3} />
           </div>
           <p style={{ fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: "-0.02em" }}>
-            No debes nada
+            {esCobro ? "Ya esta pagado" : "No debes nada"}
           </p>
           <p style={{ fontSize: 15, color: "#8a8a8a", marginTop: 10 }}>
-            Tu cuenta con {deuda.negocio} esta al corriente.
+            {esCobro
+              ? `${deuda.negocio} ya recibio tu pago.`
+              : `Tu cuenta con ${deuda.negocio} esta al corriente.`}
           </p>
         </div>
       </Marco>
@@ -274,7 +286,8 @@ export default function PaginaDeudor({ params }) {
 
   /* ------------------------ la deuda ------------------------ */
   const atraso  = Number(deuda.dias_atraso || 0);
-  const vencida = atraso > 0;
+  /* Un cobro no tiene fecha, asi que nunca esta vencido */
+  const vencida = !esCobro && atraso > 0;
   const enLinea = deuda.acepta_linea === true;
 
   return (
@@ -284,7 +297,7 @@ export default function PaginaDeudor({ params }) {
           Hola {deuda.cliente},
         </p>
         <p style={{ fontSize: 15, marginTop: 4, marginBottom: 20 }}>
-          esto es lo que debes en{" "}
+          {esCobro ? "esto es lo que te cobra " : "esto es lo que debes en "}
           <span style={{ fontWeight: 700 }}>{deuda.negocio}</span>
         </p>
 
@@ -295,7 +308,9 @@ export default function PaginaDeudor({ params }) {
             display: "flex", alignItems: "center", gap: 8,
           }}>
             <Check size={16} strokeWidth={3} />
-            Pago recibido, tu saldo se esta actualizando
+            {esCobro
+              ? "Pago recibido, gracias"
+              : "Pago recibido, tu saldo se esta actualizando"}
           </div>
         )}
         {regreso === "pendiente" && (
@@ -340,19 +355,22 @@ export default function PaginaDeudor({ params }) {
             </p>
           )}
 
-          <div style={{ marginTop: 14 }}>
-            <span className="chip" style={{
-              borderColor: vencida ? "#C0392B" : "#e4e4e4",
-              background: vencida ? "#C0392B" : "transparent",
-              color: vencida ? "#fff" : "#8a8a8a",
-            }}>
-              {vencida
-                ? `Vencio hace ${atraso} ${atraso === 1 ? "dia" : "dias"}`
-                : atraso === 0
-                ? "Vence hoy"
-                : `Vence el ${fechaLarga(deuda.vence)}`}
-            </span>
-          </div>
+          {/* El chip de fecha solo aplica a deudas a credito */}
+          {!esCobro && (
+            <div style={{ marginTop: 14 }}>
+              <span className="chip" style={{
+                borderColor: vencida ? "#C0392B" : "#e4e4e4",
+                background: vencida ? "#C0392B" : "transparent",
+                color: vencida ? "#fff" : "#8a8a8a",
+              }}>
+                {vencida
+                  ? `Vencio hace ${atraso} ${atraso === 1 ? "dia" : "dias"}`
+                  : atraso === 0
+                  ? "Vence hoy"
+                  : `Vence el ${fechaLarga(deuda.vence)}`}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* ---------- menu ---------- */}
@@ -404,7 +422,7 @@ export default function PaginaDeudor({ params }) {
               </button>
             </div>
 
-            <Error />
+            <Aviso />
 
             <button className="btn" onClick={pagarEnLinea} disabled={enviando}>
               {enviando ? "Un momento..." : "Continuar a Mercado Pago"}
@@ -418,7 +436,7 @@ export default function PaginaDeudor({ params }) {
 
             <p style={{ fontSize: 13, color: "#8a8a8a", marginTop: 14, lineHeight: 1.5 }}>
               Vas a pagar en la pagina de Mercado Pago y regresas aqui.
-              Tu saldo se actualiza solo.
+              {esCobro ? "" : " Tu saldo se actualiza solo."}
             </p>
           </div>
         )}
@@ -450,7 +468,7 @@ export default function PaginaDeudor({ params }) {
               <option value="otro">Otro</option>
             </select>
 
-            <Error />
+            <Aviso />
 
             <button className="btn" onClick={reportar} disabled={enviando}>
               {enviando ? "Enviando..." : "Enviar aviso"}
@@ -463,7 +481,8 @@ export default function PaginaDeudor({ params }) {
             </button>
 
             <p style={{ fontSize: 13, color: "#8a8a8a", marginTop: 14, lineHeight: 1.5 }}>
-              El negocio revisa y confirma. Tu saldo se actualiza cuando lo haga.
+              El negocio revisa y confirma.
+              {esCobro ? "" : " Tu saldo se actualiza cuando lo haga."}
             </p>
           </div>
         )}
