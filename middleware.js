@@ -3,7 +3,12 @@ import { NextResponse } from "next/server";
 
 /* El portero de Cobriq.
    Corre antes de cada pagina. Si no hay sesion, manda al login.
-   Tambien refresca la sesion para que no se caiga sola. */
+   Tambien refresca la sesion para que no se caiga sola.
+
+   Las rutas /api quedan fuera a proposito: los webhooks de Stripe
+   y Mercado Pago llegan desde sus servidores, sin cookie de sesion,
+   y el portero los rebotaba al login. Cada ruta de /api revisa la
+   sesion por su cuenta cuando la necesita. */
 
 const PUBLICAS = ["/login", "/registro", "/d"];
 
@@ -56,6 +61,6 @@ export async function middleware(request) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
