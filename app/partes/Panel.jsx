@@ -2,6 +2,7 @@
 
 import { Check, Clock, Plus, UserPlus, MessageCircle, Receipt, ChevronRight } from "lucide-react";
 import { pesos, diasDeAtraso, fechaCorta } from "../acciones";
+import Avance from "./Avance";
 
 /* Pantalla principal: aviso de cobro, total por cobrar, contadores
    por estado, cobros sueltos, pagos reportados y la lista de deudas. */
@@ -48,9 +49,6 @@ export default function Panel({
   const cobrosCobrado  = cobrosActivos.reduce((s, c) => s + c.paid_cents, 0);
 
   const porRevisar = pagos.filter((p) => p.status === "pending_review");
-
-  const meta = porCobrar + cobrado;
-  const pct  = meta ? (cobrado / meta) * 100 : 0;
 
   /* --- lista filtrada --- */
   let lista = activas;
@@ -104,19 +102,16 @@ export default function Panel({
           {pesos(porCobrar)}
         </p>
 
-        <div className="mt-6 max-w-md">
-          <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--humo)" }}>
-            <div className="barra" style={{ width: `${pct}%`, background: "var(--verde)" }} />
-          </div>
-          <p className="text-xs mt-2" style={{ color: "var(--tenue)" }}>
-            Ya cobraste{" "}
-            <span className="font-semibold" style={{ color: "var(--verde)" }}>
-              {pesos(cobrado)}
-            </span>{" "}
-            de {pesos(meta)}
-          </p>
-        </div>
+        <p className="text-xs mt-2" style={{ color: "var(--tenue)" }}>
+          En total llevas cobrado{" "}
+          <span className="num font-semibold" style={{ color: "var(--verde)" }}>
+            {pesos(cobrado)}
+          </span>
+        </p>
       </section>
+
+      {/* como va el mes y que tan bien te pagan */}
+      <Avance deudas={deudas} pagos={pagos} />
 
       {/* los dos botones de alta */}
       <section className="flex gap-2 pb-8 flex-wrap">
