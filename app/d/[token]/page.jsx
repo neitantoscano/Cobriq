@@ -2,12 +2,16 @@
 
 import { useState, useEffect } from "react";
 import { createBrowserClient } from "@supabase/ssr";
-import { Check, AlertCircle, Clock } from "lucide-react";
+import { Check, AlertCircle, Clock, Download } from "lucide-react";
+import {
+  pintarComprobante, entregarImagen, nombreMetodo, fechaLargaPago,
+} from "./comprobante";
 
 /* Pantalla que ve quien va a pagar al abrir su link.
    Sirve para dos casos: una deuda a credito, que tiene fecha
    de vencimiento, o un cobro suelto, que se paga de una vez.
-   Las palabras cambian segun cual sea. */
+   Las palabras cambian segun cual sea.
+   Abajo salen sus pagos confirmados con su comprobante. */
 
 const pesos = (c) =>
   (Number(c || 0) / 100).toLocaleString("es-MX", {
@@ -36,6 +40,7 @@ export default function PaginaDeudor({ params }) {
   const token = params?.token;
 
   const [deuda, setDeuda]       = useState(null);
+  const [pagos, setPagos]       = useState([]);
   const [cargando, setCargando] = useState(true);
   const [noExiste, setNoExiste] = useState(false);
 
@@ -47,14 +52,21 @@ export default function PaginaDeudor({ params }) {
   const [listo, setListo]     = useState(false);
   const [regreso, setRegreso] = useState(null);
 
+  const [armando, setArmando]   = useState(null); // folio que se esta armando
+  const [falloComp, setFalloComp] = useState("");
+
   /* --------------------- traer la deuda --------------------- */
   const traer = async () => {
     if (!token) { setNoExiste(true); setCargando(false); return; }
 
     try {
       const sb = nuevoCliente();
-      const { data, error: err } = await sb.rpc("deuda_publica", { token });
+      const [resDeuda, resPagos] = await Promise.all([
+        sb.rpc("deuda_publica", { token }),
+        sb.rpc("pagos_publicos", { token }),
+      ]);
 
+      const { data, error: err } = resDeuda;
       if (err || !data || data.length === 0) {
         setNoExiste(true);
       } else {
@@ -62,6 +74,10 @@ export default function PaginaDeudor({ params }) {
         setDeuda(d);
         setMonto(String(Number(d.saldo_cents) / 100));
       }
+
+      /* Si los pagos fallan no rompemos la pantalla:
+         solo no se ensena la lista de comprobantes. */
+      setPagos(resPagos.error ? [] : resPagos.data || []);
     } catch {
       setNoExiste(true);
     } finally {
@@ -86,9 +102,42 @@ export default function PaginaDeudor({ params }) {
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [regreso]);
 
-  /* Es un cobro suelto, no una deuda a credito.
-     Se calcula aqui para usarlo en todas las pantallas. */
+  /* Es un cobro suelto, no una deuda a credito. */
   const esCobro = deuda?.tipo === "cobro";
+
+  /* --------------------- comprobante ------------------------ */
+  const descargarComprobante = async (p) => {
+    setFalloComp("");
+    setArmando(p.folio);
+    try {
+      const canvas = pintarComprobante(
+        (w, h) => {
+          const c = document.createElement("canvas");
+          c.width = w;
+          c.height = h;
+          return c;
+        },
+        {
+          negocio: deuda.negocio,
+          cliente: deuda.cliente,
+          concepto: deuda.concepto,
+          folio: p.folio,
+          monto: p.monto_cents,
+          fecha: p.fecha,
+          metodo: p.metodo,
+          saldo: p.saldo_despues_cents,
+        }
+      );
+      const ok = await entregarImagen(
+        canvas, "comprobante-" + p.folio + ".png", "Comprobante de pago"
+      );
+      if (!ok) setFalloComp("No se pudo armar el comprobante. Intenta de nuevo.");
+    } catch {
+      setFalloComp("No se pudo armar el comprobante. Intenta de nuevo.");
+    } finally {
+      setArmando(null);
+    }
+  };
 
   /* --------------------- pagar en linea --------------------- */
   const pagarEnLinea = async () => {
@@ -188,6 +237,14 @@ export default function PaginaDeudor({ params }) {
     .dd .btn-2:hover { border-color:#000; background:#f4f4f4; }
     .dd .btn-2:disabled { opacity:.5; cursor:not-allowed; }
 
+    .dd .btn-chico { display:inline-flex; align-items:center; gap:6px;
+                     border:1.5px solid #e4e4e4; background:#fff; color:#000;
+                     font-weight:600; font-size:13px; padding:8px 12px; border-radius:8px;
+                     cursor:pointer; font-family:inherit; white-space:nowrap;
+                     transition:border-color .2s, background .2s; }
+    .dd .btn-chico:hover { border-color:#000; background:#f4f4f4; }
+    .dd .btn-chico:disabled { opacity:.5; cursor:not-allowed; }
+
     .dd .chip { display:inline-flex; align-items:center; gap:5px; font-size:12px;
                 font-weight:600; padding:4px 10px; border-radius:99px;
                 border:1.5px solid #e4e4e4; }
@@ -206,12 +263,53 @@ export default function PaginaDeudor({ params }) {
 
   const Aviso = () =>
     !error ? null : (
-      <p style={{
-        fontSize: 14, color: "#C0392B", fontWeight: 500, marginBottom: 16,
-      }}>
+      <p style={{ fontSize: 14, color: "#C0392B", fontWeight: 500, marginBottom: 16 }}>
         {error}
       </p>
     );
+
+  /* Lista de pagos con su comprobante. Es un bloque, no un
+     componente, para que no se redibuje desde cero en cada cambio. */
+  const listaPagos = pagos.length === 0 ? null : (
+    <div style={{ marginTop: 28, textAlign: "left" }}>
+      <p style={{ fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Tus pagos</p>
+      <p style={{ fontSize: 13, color: "#8a8a8a", margin: "0 0 10px" }}>
+        Descarga el comprobante de cada uno.
+      </p>
+
+      <div style={{ borderTop: "1px solid #e4e4e4" }}>
+        {pagos.map((p) => (
+          <div key={p.folio} style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: 12, padding: "12px 0", borderBottom: "1px solid #e4e4e4",
+          }}>
+            <div style={{ minWidth: 0 }}>
+              <p className="num" style={{ fontWeight: 700, fontSize: 15, margin: 0 }}>
+                {pesos(p.monto_cents)}
+              </p>
+              <p style={{ fontSize: 12, color: "#8a8a8a", margin: "2px 0 0" }}>
+                {fechaLargaPago(p.fecha)} · {nombreMetodo(p.metodo)}
+              </p>
+            </div>
+            <button className="btn-chico" disabled={armando !== null}
+                    onClick={() => descargarComprobante(p)}>
+              <Download size={14} />
+              {armando === p.folio ? "Armando..." : "Comprobante"}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {falloComp && (
+        <p style={{ fontSize: 13, color: "#C0392B", fontWeight: 500, marginTop: 10 }}>
+          {falloComp}
+        </p>
+      )}
+      <p style={{ fontSize: 12, color: "#8a8a8a", marginTop: 10 }}>
+        Los comprobantes no son factura fiscal.
+      </p>
+    </div>
+  );
 
   /* ------------------------ cargando ------------------------ */
   if (cargando) {
@@ -253,6 +351,7 @@ export default function PaginaDeudor({ params }) {
           <p style={{ fontSize: 15, color: "#8a8a8a", marginTop: 10, lineHeight: 1.5 }}>
             {deuda.negocio} va a revisar tu pago y lo confirma.
             {esCobro ? "" : " Tu saldo se actualiza cuando lo haga."}
+            {" "}Cuando lo confirme, aqui mismo vas a poder descargar tu comprobante.
           </p>
         </div>
       </Marco>
@@ -279,6 +378,8 @@ export default function PaginaDeudor({ params }) {
               ? `${deuda.negocio} ya recibio tu pago.`
               : `Tu cuenta con ${deuda.negocio} esta al corriente.`}
           </p>
+
+          {listaPagos}
         </div>
       </Marco>
     );
@@ -394,6 +495,8 @@ export default function PaginaDeudor({ params }) {
               Si le pagaste en efectivo o por transferencia a {deuda.negocio},
               avisale aqui para que quede registrado.
             </p>
+
+            {listaPagos}
           </>
         )}
 
