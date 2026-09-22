@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   LayoutGrid, Users, Settings, Search, X, Check, Menu,
-  AlertCircle, Receipt,
+  AlertCircle, Receipt, BarChart3,
 } from "lucide-react";
 
 import { CSS } from "./estilos";
@@ -14,6 +14,7 @@ import Clientes from "./partes/Clientes";
 import Ajustes from "./partes/Ajustes";
 import Cobrar from "./partes/Cobrar";
 import Cobros from "./partes/Cobros";
+import Reportes from "./partes/Reportes";
 import Logo from "./partes/Logo";
 import ModalCobro from "./partes/ModalCobro";
 import { ModalDeuda, ModalDeudor, ModalCliente, ModalPago } from "./partes/Modales";
@@ -417,6 +418,7 @@ export default function Page() {
   const navegacion = [
     { id: "panel",    icono: LayoutGrid, texto: "Panel" },
     { id: "cobros",   icono: Receipt,    texto: "Cobros" },
+    { id: "reportes", icono: BarChart3,  texto: "Reportes" },
     { id: "clientes", icono: Users,      texto: "Clientes" },
     { id: "ajustes",  icono: Settings,   texto: "Ajustes" },
   ];
@@ -527,6 +529,14 @@ export default function Page() {
             />
           )}
 
+          {vista === "reportes" && (
+            <Reportes
+              deudas={soloDeudas} pagos={datos.pagos}
+              abrirDeuda={abrirDeuda}
+              negocio={datos.perfil.business_name}
+            />
+          )}
+
           {vista === "cobrar" && (
             <Cobrar
               deudas={soloDeudas} clientes={datos.clientes}
@@ -574,6 +584,7 @@ export default function Page() {
                     background: "none", border: 0, cursor: "pointer",
                     color: activo(n.id) ? "var(--tinta)" : "var(--tenue)",
                     fontWeight: activo(n.id) ? 600 : 500, fontSize: 11,
+                    minWidth: 0,
                   }}>
             <n.icono size={19} strokeWidth={activo(n.id) ? 2.4 : 2} />
             {n.texto}
@@ -666,7 +677,7 @@ function Esqueleto() {
       <aside className="hidden md:block w-56 shrink-0 p-4"
              style={{ borderRight: "1px solid var(--linea)" }}>
         <div className="hueso" style={{ height: 28, width: 110, marginBottom: 28 }} />
-        {[0, 1, 2, 3].map((i) => (
+        {[0, 1, 2, 3, 4].map((i) => (
           <div key={i} className="hueso" style={{ height: 34, marginBottom: 8 }} />
         ))}
       </aside>
