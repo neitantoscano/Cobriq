@@ -202,6 +202,15 @@ export default function PaginaDeudor({ params }) {
         return;
       }
       setListo(true);
+
+      /* Avisarle al dueno por correo. No se espera la respuesta
+         ni importa si falla: el pago ya quedo reportado y el
+         deudor no tiene por que enterarse de eso. */
+      fetch("/api/avisar-pago", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      }).catch(() => {});
     } catch {
       setEnviar(false);
       setError("No se pudo enviar. Intenta de nuevo.");
