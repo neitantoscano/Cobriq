@@ -55,14 +55,18 @@ export async function POST(request) {
       return NextResponse.json({ ok: true, enviado: false });
     }
 
-    /* A quien le avisamos */
-    const { data: perfil } = await admin
-      .from("profiles")
-      .select("email, business_name")
-      .eq("id", deuda.owner_id)
-      .maybeSingle();
+    /* A quien le avisamos.
+       El correo del dueno no vive en profiles, vive en la tabla
+       de usuarios de Supabase, asi que se saca de ahi. */
+    const { data: cuenta, error: errCuenta } =
+      await admin.auth.admin.getUserById(deuda.owner_id);
 
-    if (!perfil?.email) return NextResponse.json({ ok: true, enviado: false });
+    const correoDueno = cuenta?.user?.email;
+
+    if (errCuenta || !correoDueno) {
+      console.error("avisar-pago: sin correo del dueno", deuda.owner_id);
+      return NextResponse.json({ ok: true, enviado: false });
+    }
 
     /* Quien dice que pago */
     let quien = deuda.payer_name;
@@ -108,7 +112,7 @@ export async function POST(request) {
       `Revisa que el dinero te haya llegado y confirmalo en ${origen}`;
 
     const r = await mandarCorreo({
-      para: perfil.email,
+      para: correoDueno,
       asunto: `${quien} dice que te pago ${monto}`,
       html,
       texto,
